@@ -5,6 +5,7 @@
 import { Elysia } from 'elysia'
 import { consultationsRoutes } from './routes/consultations'
 import { meetingRoutes } from './routes/meeting'
+import { workspaceRoutes } from './routes/workspace'
 import { templatesRoutes } from './routes/templates'
 
 export const consultationsModule = new Elysia()
@@ -12,5 +13,6 @@ export const consultationsModule = new Elysia()
   // routes live under /api/consultations/:id, and the specific path has to be
   // matched before the generic one claims it.
   .use(meetingRoutes)
+  .use(workspaceRoutes)
   .use(consultationsRoutes)
   .use(templatesRoutes)

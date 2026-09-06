@@ -1,0 +1,249 @@
+/**
+ * The three data panels of the consultation screen: recommendations, the
+ * clinical note, and the transcript. (The chatbot is its own file — it owns a
+ * composer and a send loop.)
+ *
+ * Each one is a pure view over what the workspace endpoint returned plus the
+ * callbacks that write back, so the screen holds the state and these hold none.
+ */
+import { useState } from 'react'
+import { Stethoscope } from '@tamagui/lucide-icons'
+import { ScrollView, Text, XStack, YStack } from 'tamagui'
+import type { translator } from '../../lib/i18n'
+import { formatDuration } from '../../lib/consultations'
+import type { ClinicalNote, Recommendation, TranscriptSegment } from '../../lib/workspace'
+import { PanelEmpty } from './Panel'
+import { Badge, Button } from '../ui'
+
+// ── Recomendaciones ───────────────────────────────────────────────────
+
+export function RecommendationsPanel({
+  i18n,
+  recommendations,
+  onSetStatus,
+}: {
+  i18n: ReturnType<typeof translator>
+  recommendations: Recommendation[]
+  onSetStatus: (id: string, status: 'featured' | 'removed' | null) => void
+}) {
+  const { t } = i18n
+  if (!recommendations.length) {
+    return (
+      <PanelEmpty
+        icon={<Stethoscope size={22} color="$color10" />}
+        label={t('workspace.recommendations.empty')}
+      />
+    )
+  }
+
+  return (
+    <ScrollView flex={1}>
+      <YStack padding="$1.5" gap="$1">
+        {recommendations.map((item) => (
+          <YStack
+            key={item.id}
+            gap="$0.5"
+            padding="$1"
+            borderRadius="$3"
+            borderWidth={1}
+            borderColor={item.status === 'featured' ? '$actionText' : '$borderColor'}
+            backgroundColor={item.status === 'featured' ? '$actionSurfaceHover' : '$background'}
+          >
+            <XStack alignItems="center" gap="$0.5" flexWrap="wrap">
+              <Badge variant={item.status === 'featured' ? 'info' : 'neutral'} size="sm">
+                {item.category}
+              </Badge>
+              {item.priority !== null ? (
+                <Text fontSize={11} color="$color11">
+                  #{item.priority}
+                </Text>
+              ) : null}
+            </XStack>
+            <Text
+              fontSize={13}
+              color={item.status === 'removed' ? '$color10' : '$color'}
+              // A discarded suggestion is struck through rather than deleted:
+              // the doctor may want to see what was proposed and rejected.
+              textDecorationLine={item.status === 'removed' ? 'line-through' : 'none'}
+            >
+              {item.value}
+            </Text>
+            <XStack gap="$0.5">
+              <Button
+                size="sm"
+                variant={item.status === 'featured' ? 'primary' : 'ghost'}
+                onPress={() => onSetStatus(item.id, item.status === 'featured' ? null : 'featured')}
+              >
+                {t('workspace.recommendations.feature')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onPress={() => onSetStatus(item.id, item.status === 'removed' ? null : 'removed')}
+              >
+                {t('workspace.recommendations.discard')}
+              </Button>
+            </XStack>
+          </YStack>
+        ))}
+      </YStack>
+    </ScrollView>
+  )
+}
+
+// ── SOAP / nota clínica ───────────────────────────────────────────────
+
+export function NotePanel({
+  i18n,
+  note,
+  onSave,
+}: {
+  i18n: ReturnType<typeof translator>
+  note: ClinicalNote
+  onSave: (body: string) => Promise<void>
+}) {
+  const { t } = i18n
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (!editing && !note?.body) {
+    return (
+      <YStack flex={1}>
+        <PanelEmpty label={t('workspace.note.empty')} />
+        <XStack padding="$1" justifyContent="center">
+          <Button
+            size="sm"
+            variant="secondary"
+            onPress={() => {
+              setDraft('')
+              setEditing(true)
+            }}
+          >
+            {t('workspace.note.write')}
+          </Button>
+        </XStack>
+      </YStack>
+    )
+  }
+
+  if (editing) {
+    return (
+      <YStack flex={1} padding="$1" gap="$1">
+        {/* A plain textarea, not a rich editor: the note is markdown, the
+            doctor edits it as text, and the flow writes the same field. */}
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          style={{
+            flex: 1,
+            minHeight: 160,
+            resize: 'none',
+            border: 'none',
+            outline: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            font: 'inherit',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        />
+        <XStack gap="$0.5" justifyContent="flex-end">
+          <Button size="sm" variant="ghost" onPress={() => setEditing(false)}>
+            {t('form.cancel')}
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={saving}
+            onPress={async () => {
+              setSaving(true)
+              try {
+                await onSave(draft)
+                setEditing(false)
+              } finally {
+                setSaving(false)
+              }
+            }}
+          >
+            {saving ? t('form.saving') : t('form.save')}
+          </Button>
+        </XStack>
+      </YStack>
+    )
+  }
+
+  return (
+    <YStack flex={1}>
+      <ScrollView flex={1}>
+        {/* Markdown as written. Rendering it is the next step; showing it
+            verbatim is honest and readable, and never mangles a heading. */}
+        <Text
+          padding="$1.5"
+          fontSize={13}
+          lineHeight={20}
+          color="$color"
+          whiteSpace="pre-wrap"
+        >
+          {note?.body}
+        </Text>
+      </ScrollView>
+      <XStack padding="$1" gap="$0.5" justifyContent="space-between" alignItems="center">
+        <Text fontSize={11} color="$color11">
+          {note?.edited_at ? t('workspace.note.edited') : t('workspace.note.draft')}
+        </Text>
+        <Button
+          size="sm"
+          variant="secondary"
+          onPress={() => {
+            setDraft(note?.body ?? '')
+            setEditing(true)
+          }}
+        >
+          {t('form.edit')}
+        </Button>
+      </XStack>
+    </YStack>
+  )
+}
+
+// ── Transcripción ─────────────────────────────────────────────────────
+
+export function TranscriptionPanel({
+  i18n,
+  segments,
+}: {
+  i18n: ReturnType<typeof translator>
+  segments: TranscriptSegment[]
+}) {
+  const { t } = i18n
+  if (!segments.length) return <PanelEmpty label={t('workspace.transcript.empty')} />
+
+  return (
+    <ScrollView flex={1}>
+      <YStack padding="$1.5" gap="$0.75">
+        {segments.map((segment) => (
+          <XStack key={segment.id} gap="$0.75" alignItems="flex-start">
+            <Text fontSize={11} color="$color10" width={44} fontVariant={['tabular-nums']}>
+              {formatDuration(segment.at_seconds)}
+            </Text>
+            <YStack flex={1} gap="$0.25">
+              {segment.speaker ? (
+                <Text fontSize={11} fontWeight="700" color="$color11">
+                  {segment.speaker === 'doctor'
+                    ? t('workspace.transcript.doctor')
+                    : segment.speaker === 'patient'
+                      ? t('workspace.transcript.patient')
+                      : segment.speaker}
+                </Text>
+              ) : null}
+              <Text fontSize={13} color="$color" lineHeight={19}>
+                {segment.text}
+              </Text>
+            </YStack>
+          </XStack>
+        ))}
+      </YStack>
+    </ScrollView>
+  )
+}

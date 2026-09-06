@@ -48,6 +48,7 @@ import { Tabs, type Tab } from '../components/Tabs'
 import { Pager } from '../components/Pager'
 import { useToast } from '../components/Toast'
 import { Badge, Button, EmptyState, Spinner } from '../components/ui'
+import { ConsultationScreen } from './consultation'
 
 type TabKey = 'all' | ConsultationMode
 type Template = { id: string; title: string; scope: 'org' | 'personal'; active: boolean }
@@ -77,6 +78,10 @@ export function Page(props: MountProps) {
   const [renaming, setRenaming] = useState<Consultation | null>(null)
   const [removing, setRemoving] = useState<Consultation | null>(null)
   const [meeting, setMeeting] = useState<Consultation | null>(null)
+  // The section shows either the listing or ONE consultation. The host mounts
+  // this panel per route and never re-mounts on a click, so the detail is state
+  // here rather than a route of Daguito's the host would have to know about.
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const params = useMemo(() => {
     const search_ = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
@@ -284,6 +289,21 @@ export function Page(props: MountProps) {
 
   const filtered = Boolean(search || day)
 
+  if (openId) {
+    return (
+      <ConsultationScreen
+        props={props}
+        consultationId={openId}
+        onBack={() => {
+          setOpenId(null)
+          // The consultation may have been recorded, renamed or closed while it
+          // was open; the listing behind it must not still show the old row.
+          list.reload()
+        }}
+      />
+    )
+  }
+
   return (
     <PageShell
       title={t('consultations.title')}
@@ -345,7 +365,12 @@ export function Page(props: MountProps) {
           }
         />
       ) : (
-        <DataGrid columns={columns} rows={rows} rowKey={(row) => row.id} />
+        <DataGrid
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.id}
+          onRowPress={(row) => setOpenId(row.id)}
+        />
       )}
 
       <Pager
