@@ -104,3 +104,22 @@ variable "github_repo_ids" {
   default     = ""
   description = "Optional rename-proof form \"owner@ownerId/repo@repoId\" (gh api repos/<owner>/<repo> → .owner.id / .id)."
 }
+
+variable "jitsi_domain" {
+  type        = string
+  default     = ""
+  description = "Jitsi server that hosts the consultation rooms, e.g. \"meet.pediatric.example\". Empty = the public meet.jit.si, which is fine for a pilot and not for patient data."
+}
+
+variable "jitsi_app_id" {
+  type        = string
+  default     = ""
+  description = "App id the Jitsi JWT module (prosody token_verification) expects as iss/sub/aud. Empty, together with the secret, means the rooms are PUBLIC: anyone with the room name may join. Not a secret itself."
+}
+
+variable "jitsi_app_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "HS256 secret the room tokens are signed with. Stored as an SSM SecureString. Empty = public rooms; the API still serves, because this guards a video room and not the client's records."
+}

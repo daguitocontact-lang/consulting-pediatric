@@ -128,4 +128,13 @@ describe('rowActions', () => {
     expect(rowActions('finished').remove).toBe(false)
     expect(rowActions('initial').remove).toBe(true)
   })
+
+  test('the room is offered until the consultation is closed', () => {
+    // The legacy app tied the room to the mode and left `in_person` without
+    // one; here the only thing that closes a room is the consultation ending.
+    expect(rowActions('initial').join).toBe(true)
+    expect(rowActions('recording').join).toBe(true)
+    expect(rowActions('processing').join).toBe(true)
+    expect(rowActions('finished').join).toBe(false)
+  })
 })

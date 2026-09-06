@@ -20,6 +20,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
+import { Video } from '@tamagui/lucide-icons'
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage, type MountProps } from '../lib/api'
 import { translator } from '../lib/i18n'
 import { useAsync } from '../lib/useAsync'
@@ -38,6 +39,7 @@ import {
   type ConsultationPage,
 } from '../lib/consultations'
 import { ErrorNote, PageShell } from '../components/PageShell'
+import { MeetingRoom } from '../components/MeetingRoom'
 import { DataGrid, RowActions, type GridColumn } from '../components/DataGrid'
 import { CreateForm, type FieldSpec } from '../components/CreateForm'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -74,6 +76,7 @@ export function Page(props: MountProps) {
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<Consultation | null>(null)
   const [removing, setRemoving] = useState<Consultation | null>(null)
+  const [meeting, setMeeting] = useState<Consultation | null>(null)
 
   const params = useMemo(() => {
     const search_ = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
@@ -241,16 +244,33 @@ export function Page(props: MountProps) {
       render: (row) => {
         const can = rowActions(row.status)
         return (
-          <RowActions
-            edit={can.rename ? () => setRenaming(row) : undefined}
-            remove={can.remove ? () => setRemoving(row) : undefined}
-            labels={{
-              edit: t('consultations.action.rename'),
-              activate: t('consultations.action.resume'),
-              deactivate: t('consultations.action.resume'),
-              remove: t('consultations.action.delete'),
-            }}
-          />
+          <XStack alignItems="center" justifyContent="flex-end" gap="$0.5">
+            {/* The room is one more icon in the row's strip, not a labelled
+                button: three words of chrome per row pushed the column off the
+                right edge of the table, and the strip is what the staff scan. */}
+            {can.join ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                width={28}
+                paddingHorizontal={0}
+                $sm={{ width: 36, height: 36, borderWidth: 1, borderColor: '$borderColorHover' }}
+                iconBefore={<Video size={15} />}
+                onPress={() => setMeeting(row)}
+                aria-label={t('consultations.action.join')}
+              />
+            ) : null}
+            <RowActions
+              edit={can.rename ? () => setRenaming(row) : undefined}
+              remove={can.remove ? () => setRemoving(row) : undefined}
+              labels={{
+                edit: t('consultations.action.rename'),
+                activate: t('consultations.action.join'),
+                deactivate: t('consultations.action.join'),
+                remove: t('consultations.action.delete'),
+              }}
+            />
+          </XStack>
         )
       },
     },
@@ -379,6 +399,18 @@ export function Page(props: MountProps) {
           list.refresh()
           toast.success(t('consultations.toast.renamed'))
         }}
+      />
+
+      <MeetingRoom
+        props={props}
+        i18n={i18n}
+        consultation={
+          meeting
+            ? { id: meeting.id, label: displayName(meeting, i18n), status: meeting.status }
+            : null
+        }
+        onClose={() => setMeeting(null)}
+        onEnded={() => list.refresh()}
       />
 
       <ConfirmDialog

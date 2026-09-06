@@ -37,6 +37,10 @@ export type ConsultationRow = {
   duration_seconds: number
   notes: string | null
   patient_consent_at: string | null
+  /** The Jitsi room this consultation owns — every mode has one (0004). */
+  room_name: string
+  meeting_started_at: string | null
+  meeting_ended_at: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -83,7 +87,8 @@ const FOLDED_NAME = sql`pediatric_fold(COALESCE(c.name, c.patient_name))`
 const SELECT = sql`
   SELECT c.id, c.patient_contact_id, c.patient_name, c.name, c.language, c.mode, c.status,
          c.template_id, t.title AS template_title, c.duration_seconds, c.notes,
-         c.patient_consent_at, c.created_by, c.created_at, c.updated_at
+         c.patient_consent_at, c.room_name, c.meeting_started_at, c.meeting_ended_at,
+         c.created_by, c.created_at, c.updated_at
     FROM consultations c
     LEFT JOIN consultation_templates t ON t.id = c.template_id
 `
@@ -257,6 +262,52 @@ export async function recordConsent(orgId: string, id: string): Promise<Consulta
   const [row] = await sql<{ id: string }[]>`
     UPDATE consultations
        SET patient_consent_at = COALESCE(patient_consent_at, now()), updated_at = now()
+     WHERE org_id = ${orgId} AND id = ${id}::uuid
+     RETURNING id
+  `
+  return row ? getConsultation(orgId, row.id) : null
+}
+
+/**
+ * Open the room, once.
+ *
+ * `COALESCE` again: the doctor reloads, the patient joins twice, the tab is
+ * reopened — the meeting still started when it started. Re-opening also clears
+ * a previous end, because a consultation that resumes has not ended.
+ */
+export async function startMeeting(orgId: string, id: string): Promise<ConsultationRow | null> {
+  const [row] = await sql<{ id: string }[]>`
+    UPDATE consultations
+       SET meeting_started_at = COALESCE(meeting_started_at, now()),
+           meeting_ended_at = NULL,
+           -- Opening the room is what turns a pending consultation into one in
+           -- progress; a finished one is left alone, so re-opening the room to
+           -- re-read something cannot re-open the consultation.
+           status = CASE WHEN status IN ('draft', 'initial') THEN 'recording' ELSE status END,
+           updated_at = now()
+     WHERE org_id = ${orgId} AND id = ${id}::uuid
+     RETURNING id
+  `
+  return row ? getConsultation(orgId, row.id) : null
+}
+
+/**
+ * Close the room and bank the time.
+ *
+ * The elapsed seconds are computed HERE, from the two timestamps, rather than
+ * taken from the browser: a client that closed its laptop reports nothing, and
+ * one with a wrong clock reports an hour. `GREATEST(...,0)` because a clock
+ * that jumped backwards must not subtract from a consultation's duration.
+ */
+export async function endMeeting(orgId: string, id: string): Promise<ConsultationRow | null> {
+  const [row] = await sql<{ id: string }[]>`
+    UPDATE consultations
+       SET meeting_ended_at = now(),
+           duration_seconds = duration_seconds + CASE
+             WHEN meeting_started_at IS NULL OR meeting_ended_at IS NOT NULL THEN 0
+             ELSE GREATEST(FLOOR(EXTRACT(EPOCH FROM (now() - meeting_started_at)))::int, 0)
+           END,
+           updated_at = now()
      WHERE org_id = ${orgId} AND id = ${id}::uuid
      RETURNING id
   `

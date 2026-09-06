@@ -29,3 +29,10 @@ EOT
 # Every apply registers a task-def revision from this value and CI clones the
 # LATEST revision, so keep it at the running image once one exists.
 # image = "<account>.dkr.ecr.us-east-1.amazonaws.com/pediatric-api:<sha>"
+
+# Jitsi (the video room every consultation owns). Empty domain = the public
+# meet.jit.si; empty id/secret = PUBLIC rooms, which is a pilot setting, not a
+# setting for patient data.
+jitsi_domain     = ""
+jitsi_app_id     = ""
+jitsi_app_secret = ""

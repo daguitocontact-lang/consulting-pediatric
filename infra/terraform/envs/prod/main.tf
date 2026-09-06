@@ -98,6 +98,17 @@ resource "aws_ssm_parameter" "daguito_webhook_secret" {
   value = var.daguito_webhook_secret
 }
 
+# ── Jitsi room signing key ───────────────────────────────────────────
+# The rooms are only as private as this secret: without it the API signs no
+# token and Jitsi lets anyone with the room name in (the API says so in its
+# logs, and the room names are random for exactly that reason).
+resource "aws_ssm_parameter" "jitsi_app_secret" {
+  count = var.jitsi_app_secret == "" ? 0 : 1
+  name  = "${local.ssm_api}/JITSI_APP_SECRET"
+  type  = "SecureString"
+  value = var.jitsi_app_secret
+}
+
 # ── ECS service (api + cloudflared) ──────────────────────────────────
 module "ecs" {
   source               = "../../modules/ecs-fargate-cloudflared"
@@ -116,6 +127,10 @@ module "ecs" {
     DAGUITO_ORG_IDS = var.daguito_org_ids
     # Outbound: registering the contact custom fields at boot (src/daguito).
     DAGUITO_API_BASE = var.daguito_api_base
+    # The video room every consultation owns (src/lib/jitsi.ts). The panel is
+    # handed the domain at runtime, so it is configured here and not in a build.
+    JITSI_DOMAIN = var.jitsi_domain
+    JITSI_APP_ID = var.jitsi_app_id
   }
   secret_ssm_arns = merge(
     {
@@ -127,6 +142,9 @@ module "ecs" {
     },
     var.daguito_webhook_secret == "" ? {} : {
       DAGUITO_WEBHOOK_SECRET = aws_ssm_parameter.daguito_webhook_secret[0].arn
+    },
+    var.jitsi_app_secret == "" ? {} : {
+      JITSI_APP_SECRET = aws_ssm_parameter.jitsi_app_secret[0].arn
     },
   )
 }

@@ -24,6 +24,10 @@ export type Consultation = {
   duration_seconds: number
   notes: string | null
   patient_consent_at: string | null
+  /** Every consultation owns a Jitsi room, whatever its mode (migration 0004). */
+  room_name: string
+  meeting_started_at: string | null
+  meeting_ended_at: string | null
   created_at: string
   updated_at: string
 }
@@ -125,22 +129,24 @@ export function hasWorkInFlight(rows: Consultation[]): boolean {
  * them, so a finished consultation showed two greyed icons that never did
  * anything. Here a row offers what it can do:
  *
- *   - `open`   — always: the detail screen reads even a draft;
+ *   - `join`   — the video room, for EVERY mode. The legacy app minted a room
+ *     only when the mode was not `in_person`, which left the office
+ *     consultation — the common one in a paediatric practice — unable to pull
+ *     in a parent who could not come, a specialist, or an interpreter. A
+ *     finished consultation keeps its room name for the record but is not
+ *     re-entered;
  *   - `rename` — only once finished, which is when it has a name worth fixing;
- *   - `resume` — while it is being recorded;
  *   - `remove` — never once finished: that is clinical history, and deleting
  *     it is not a listing's job.
  */
 export function rowActions(status: ConsultationStatus): {
-  open: boolean
+  join: boolean
   rename: boolean
-  resume: boolean
   remove: boolean
 } {
   return {
-    open: true,
+    join: status !== 'finished',
     rename: status === 'finished',
-    resume: status === 'recording' || status === 'initial',
     remove: status !== 'finished',
   }
 }
