@@ -96,11 +96,13 @@ describe('canStartRecording', () => {
 })
 
 describe('autoJoinsMeeting', () => {
-  test('only a video consultation opens its room on its own', () => {
+  test('TEMPORARY: every kind opens the room while transcription is debugged', () => {
+    // The rule this replaces — and that should come back — is that only a video
+    // consultation opens it, because a presencial is two people in one office
+    // and does not need a camera opened for them. Starting a consultation does
+    // not depend on it either way: see canStartRecording.
     expect(autoJoinsMeeting('video')).toBe(true)
-    // Opening a camera in a consulting room because somebody opened a screen is
-    // not a feature.
-    expect(autoJoinsMeeting('in_person')).toBe(false)
-    expect(autoJoinsMeeting('transcription')).toBe(false)
+    expect(autoJoinsMeeting('in_person')).toBe(true)
+    expect(autoJoinsMeeting('transcription')).toBe(true)
   })
 })

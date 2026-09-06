@@ -332,8 +332,13 @@ export function ConsultationScreen({
           </Badge>
         ) : null}
         {stream.state.kind === 'live' ? (
-          <Badge variant="success" size="sm">
-            {stream.state.speaking ? t('workspace.stream.speaking') : t('workspace.stream.live')}
+          // The level, not just "live": a microphone that is muted, unplugged
+          // or pointed at nothing looks identical to a working one until the
+          // consultation is over and the transcript is empty.
+          <Badge variant={stream.state.level > 0.01 ? 'success' : 'warning'} size="sm">
+            {stream.state.level > 0.01
+              ? t('workspace.stream.speaking')
+              : t('workspace.stream.silent')}
           </Badge>
         ) : stream.state.kind === 'connecting' ? (
           <Badge variant="info" size="sm">

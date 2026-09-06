@@ -143,6 +143,20 @@ describe('the transcript', () => {
     expect(only!.speaker).toBe('Enfermera')
   })
 
+  test('a label diarization has not settled is NO speaker', () => {
+    // AssemblyAI labels the first finals `PENDING` and settles them later;
+    // rendering that put the word "PENDING" above the first sentence of every
+    // consultation. Measured against the live flow.
+    expect(transcriptFromEvent({ text: 'hola', speaker_label: 'PENDING' })[0]!.speaker).toBeNull()
+    expect(transcriptFromEvent({ text: 'hola', speaker_label: 'UNKNOWN' })[0]!.speaker).toBeNull()
+    expect(transcriptFromEvent({ text: 'hola', speaker: '' })[0]!.speaker).toBeNull()
+  })
+
+  test('reads the words from `transcript` when the node names it that way', () => {
+    const [only] = transcriptFromEvent({ transcript: 'Buenos días, doctora.' })
+    expect(only!.text).toBe('Buenos días, doctora.')
+  })
+
   test('an event with no text yields nothing', () => {
     expect(transcriptFromEvent({ text: '   ' })).toEqual([])
     expect(transcriptFromEvent({})).toEqual([])

@@ -102,11 +102,15 @@ export function canStartRecording(p: {
 /**
  * Whether the room opens by itself when the screen does.
  *
- * A video consultation IS the call, so it opens. Every other kind keeps its
- * room — a parent who could not come, a second opinion, an interpreter — but
- * behind a button: opening a camera in a consulting room because somebody
- * opened a screen is not a feature.
+ * TEMPORARY: every kind opens it, while the transcription is being worked on —
+ * the room is the quickest way to confirm the microphone and the audio path are
+ * alive. The rule this replaces (and should come back) is that only a video
+ * consultation opens the room, because a presencial is two people in one office
+ * and does not need a camera opened for them.
+ *
+ * Starting a consultation does NOT depend on this: canStartRecording already
+ * lets a presencial or a transcripción begin with no room at all.
  */
-export function autoJoinsMeeting(mode: string): boolean {
-  return mode === 'video'
+export function autoJoinsMeeting(_mode: string): boolean {
+  return true
 }

@@ -32,7 +32,9 @@ export type StreamState =
   /** No attempt yet, or stopped. */
   | { kind: 'idle' }
   | { kind: 'connecting' }
-  | { kind: 'live'; flow: string; speaking: boolean }
+  /** `level` is the microphone's RMS (0..1): the panel shows it so a dead mic
+   *  is visible before the consultation is over. */
+  | { kind: 'live'; flow: string; level: number }
   /** The engine is not configured in this environment (our API answered 503). */
   | { kind: 'unconfigured' }
   | { kind: 'error'; message: string }
@@ -165,18 +167,26 @@ export function useConsultationStream(props: MountProps, consultationId: string)
           // because nobody is listening on that channel. Measured: 30 s of real
           // speech, zero events.
           sessionId: `${sessionKey}:doctor`,
-          // Only send while somebody is talking: the transcriber is billed by
-          // the second and a consultation is mostly silence.
-          vad: { enabled: true },
-          onSpeaking: (speaking) =>
+          // Audio goes out continuously.
+          //
+          // Voice-activity gating (`vad`) is what the legacy app uses to stop
+          // paying the transcriber for silence, and it is also a gate that can
+          // close over an entire consultation: a quiet room, a distant
+          // microphone or a laptop with aggressive noise suppression never
+          // crosses the RMS threshold, so nothing is ever sent and the panel
+          // sits on "Escuchando" with an empty transcript — which is exactly
+          // what happened. Streaming everything is the version that works;
+          // gating it again is an optimisation to make deliberately, with the
+          // level meter below to prove the threshold is right.
+          onLevel: (rms) =>
             setState((current) =>
-              current.kind === 'live' ? { ...current, speaking } : current,
+              current.kind === 'live' ? { ...current, level: rms } : current,
             ),
           onError: (err) => setState({ kind: 'error', message: err.message }),
         })
         await capture.start()
         mic.current = capture
-        setState({ kind: 'live', flow: credentials.flow, speaking: false })
+        setState({ kind: 'live', flow: credentials.flow, level: 0 })
       } catch (err) {
         // The room still works without the microphone — most often this is the
         // browser refusing permission, which is the doctor's to grant.

@@ -128,10 +128,13 @@ export type FlowTranscriptSegment = { speaker: string | null; text: string; at_s
  */
 export function transcriptFromEvent(data: Record<string, unknown>): FlowTranscriptSegment[] {
   const asSegment = (item: Record<string, unknown>): FlowTranscriptSegment | null => {
-    const text = typeof item.text === 'string' ? item.text.trim() : ''
+    // `transcript.final` carries the words under `text`; some nodes use
+    // `transcript`. Both are the same sentence.
+    const raw = typeof item.text === 'string' ? item.text : item.transcript
+    const text = typeof raw === 'string' ? raw.trim() : ''
     if (!text) return null
     const speakerRaw = item.speaker ?? item.speaker_label ?? item.role
-    const speaker = typeof speakerRaw === 'string' && speakerRaw ? normalizeSpeaker(speakerRaw) : null
+    const speaker = typeof speakerRaw === 'string' ? normalizeSpeaker(speakerRaw) : null
     return { speaker, text, at_seconds: secondsFrom(item) }
   }
 
@@ -172,8 +175,12 @@ function secondsFrom(item: Record<string, unknown>): number {
  * The flow labels speakers as it can: a diarization channel ("A"/"B"), a role,
  * or a name. The panel only distinguishes the two that matter.
  */
-function normalizeSpeaker(raw: string): string {
+function normalizeSpeaker(raw: string): string | null {
   const value = raw.trim().toLowerCase()
+  // Diarization has not decided yet: AssemblyAI labels the first finals
+  // `PENDING` and settles them later. Showing that as the speaker put the word
+  // "PENDING" above the first sentence of every consultation.
+  if (!value || value === 'pending' || value === 'unknown') return null
   if (value.includes('doctor') || value.includes('medico') || value === 'a') return 'doctor'
   if (value.includes('pacient') || value.includes('patient') || value === 'b') return 'patient'
   return raw.trim()
