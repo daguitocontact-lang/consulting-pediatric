@@ -19,6 +19,8 @@ import { requireOrg } from '../../lib/guard'
 import { safeError } from '../../lib/errors'
 import { getConsultation } from '../repos/consultations-repo'
 import { isStreamConfigured, streamCredentials } from '../../lib/daguito-stream'
+import { askAssistant, isAssistantConfigured } from '../../lib/daguito-chat'
+import { getNote, listTranscript } from '../repos/workspace-repo'
 import {
   addChatMessage,
   addRecommendations,
@@ -196,13 +198,59 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
         set.status = 404
         return { error: 'not found' }
       }
-      return {
-        message: await addChatMessage({
-          orgId: guard.orgId,
+      const role = body.role === 'assistant' ? 'assistant' : 'doctor'
+      const message = await addChatMessage({
+        orgId: guard.orgId,
+        consultationId: params.id,
+        role,
+        body: body.body,
+      })
+
+      // Only a doctor's message asks for an answer; the engine writing its own
+      // reply back through this route must not trigger another turn.
+      if (role !== 'doctor' || !isAssistantConfigured()) {
+        return { message, assistant: null, assistant_available: isAssistantConfigured() }
+      }
+
+      try {
+        // The assistant reads what the consultation has so far: the note it may
+        // be asked about, and the transcript of what was actually said.
+        const [note, transcript] = await Promise.all([
+          getNote(guard.orgId, params.id),
+          listTranscript(guard.orgId, params.id),
+        ])
+        const turn = await askAssistant({
           consultationId: params.id,
-          role: body.role === 'assistant' ? 'assistant' : 'doctor',
-          body: body.body,
-        }),
+          message: body.body,
+          note: note?.body ?? null,
+          transcript: transcript.map((segment) => segment.text).join('\n') || null,
+        })
+        if (!turn.reply) {
+          // A flow that ran and said nothing is not an assistant message: a
+          // blank bubble in a clinical thread is worse than an honest silence.
+          return { message, assistant: null, assistant_available: true }
+        }
+        return {
+          message,
+          assistant: await addChatMessage({
+            orgId: guard.orgId,
+            consultationId: params.id,
+            role: 'assistant',
+            body: turn.reply,
+          }),
+          assistant_available: true,
+        }
+      } catch (err) {
+        // The doctor's message is already saved, which is the part that must
+        // never be lost. The turn failing is reported, not thrown.
+        console.error(`[assistant] turn failed for consultation ${params.id}:`, err)
+        set.status = 202
+        return {
+          message,
+          assistant: null,
+          assistant_available: true,
+          assistant_error: err instanceof Error ? err.message : 'assistant failed',
+        }
       }
     },
     {

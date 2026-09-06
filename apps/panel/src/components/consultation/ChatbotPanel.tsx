@@ -1,12 +1,14 @@
 /**
  * The assistant thread of a consultation.
  *
- * The thread is PERSISTED here and answered elsewhere: the doctor's message is
- * written to `/api/consultations/:id/chat` immediately, and the assistant's
- * reply lands in the same thread when the flow answers. That split is what
- * makes the panel honest while the AI side is still being wired — a question
- * typed today is in the record, and the panel says plainly that nobody has
- * answered yet instead of spinning forever.
+ * One request is one turn: the route persists the doctor's message, runs the
+ * agent flow and persists its answer, so the thread on screen is exactly the
+ * thread in the database. The wait is real (an agent turn takes seconds), which
+ * is why the composer says so instead of freezing.
+ *
+ * When no engine is configured the message is still saved and the panel says
+ * plainly that nobody answered — a question in the record with no reply beats a
+ * spinner that never ends.
  */
 import { useEffect, useRef, useState } from 'react'
 import { Send, Stethoscope } from '@tamagui/lucide-icons'
@@ -81,7 +83,11 @@ export function ChatbotPanel({
                 </YStack>
               )
             })}
-            {!assistantConnected && messages.some((m) => m.role === 'doctor') ? (
+            {sending ? (
+              <Text fontSize={11} color="$color11" alignSelf="flex-start">
+                {t('workspace.chat.thinking')}
+              </Text>
+            ) : !assistantConnected && messages.some((m) => m.role === 'doctor') ? (
               <Text fontSize={11} color="$color11" alignSelf="flex-start">
                 {t('workspace.chat.pending')}
               </Text>

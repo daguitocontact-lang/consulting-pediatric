@@ -66,6 +66,9 @@ export function ConsultationScreen({
   // Whether the room is on screen at all. A video consultation IS the call, so
   // it opens with the screen; every other kind keeps its room behind a button.
   const [roomOpen, setRoomOpen] = useState(false)
+  // Set by the first answered turn: the route reports whether an assistant is
+  // configured, so the panel does not have to guess.
+  const [assistantOn, setAssistantOn] = useState(false)
   const [maximised, setMaximised] = useState<Maximised>(null)
   // Re-renders the clock once a second while the room is open. The value
   // itself is derived from the consultation (see elapsedSeconds), so a reload
@@ -213,9 +216,14 @@ export function ConsultationScreen({
             <ChatbotPanel
               i18n={i18n}
               messages={workspace.chat}
-              assistantConnected={false}
+              assistantConnected={assistantOn}
               onSend={async (body) => {
-                await apiPost(props, `/api/consultations/${consultation.id}/chat`, { body })
+                const turn = await apiPost<{ assistant_available?: boolean }>(
+                  props,
+                  `/api/consultations/${consultation.id}/chat`,
+                  { body },
+                )
+                setAssistantOn(Boolean(turn.assistant_available))
                 state.refresh()
               }}
             />

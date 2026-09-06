@@ -197,6 +197,16 @@ persiste por NUESTRAS rutas (`/transcript`, `/recommendations`, `/note` con
 `source: 'engine'`), así que el registro queda en la DB del custom y no en un
 websocket que terminó.
 
+**El asistente del chat es otro flow de la misma cuenta**: `consultation-chatbot`
+(el "Dr. Midulabs" del legacy). `POST /api/consultations/:id/chat` guarda el
+mensaje del médico, corre UN turno del agente (`runWebhookStream`, session key
+`chatbot:<id>` — nunca el id pelado, o Daguito mete la transcripción en vivo
+dentro de la burbuja del chat) y guarda la respuesta. La respuesta viene en el
+TRAZO de la corrida: `output.steps[].data.output.content`, no en un campo
+`reply`. Las claves de `context` deben coincidir con los `{{placeholders}}` del
+prompt del flow: el agente interpola plano, y una clave renombrada renderiza
+vacío y el asistente dice que no hay nota cuando sí la hay.
+
 Sin `DAGUITO_STREAM_API_KEY` la ruta responde **503** y la pantalla lo dice
 ("Sin motor de transcripción"): sala, nota a mano y hilo del asistente siguen
 funcionando.

@@ -133,6 +133,7 @@ const es = {
   'workspace.chat.placeholder': 'Escribe un mensaje…',
   'workspace.chat.send': 'Enviar',
   'workspace.chat.pending': 'El asistente aún no está conectado; tu mensaje queda guardado en el hilo.',
+  'workspace.chat.thinking': 'El asistente está pensando…',
   'workspace.chat.disclaimer':
     'El asistente se basa en IA y puede equivocarse. Revisa y valida con tu criterio clínico.',
 
@@ -277,6 +278,7 @@ const en: Record<Key, string> = {
   'workspace.chat.placeholder': 'Type a message…',
   'workspace.chat.send': 'Send',
   'workspace.chat.pending': 'The assistant is not connected yet; your message is kept in the thread.',
+  'workspace.chat.thinking': 'The assistant is thinking…',
   'workspace.chat.disclaimer':
     'The assistant is AI-based and can be wrong. Review and validate with your clinical judgement.',
 

@@ -59,7 +59,10 @@ export type StreamCredentials = {
   flow: string
 }
 
-type ResolvedWebhook = { webhook_id: string; webhook_token: string }
+export type ResolvedWebhook = { webhook_id: string; webhook_token: string }
+
+/** Where the flows live. Read by the chat module, which shares this config. */
+export const streamApiUrl = (): string => API_URL
 
 /**
  * Slug → webhook id + token, cached for the life of the process.
@@ -70,7 +73,7 @@ type ResolvedWebhook = { webhook_id: string; webhook_token: string }
  */
 const webhooks = new Map<string, Promise<ResolvedWebhook>>()
 
-function resolveWebhook(slug: string): Promise<ResolvedWebhook> {
+export function resolveFlowWebhook(slug: string): Promise<ResolvedWebhook> {
   const cached = webhooks.get(slug)
   if (cached) return cached
 
@@ -132,7 +135,7 @@ export async function streamCredentials(p: {
     throw new Error('DAGUITO_API_BASE / DAGUITO_API_KEY are required to stream')
   }
   const flow = flowForMode(p.mode)
-  const webhook = await resolveWebhook(flow)
+  const webhook = await resolveFlowWebhook(flow)
 
   if (p.open !== false) {
     // Best-effort, exactly like the legacy backend: a flow that fails to open
