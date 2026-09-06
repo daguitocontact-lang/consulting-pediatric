@@ -188,16 +188,27 @@ describe('the token', () => {
 })
 
 describe('opening and closing the room', () => {
-  test('joining stamps the start once and moves a pending consultation to recording', async () => {
+  test('joining stamps the start once', async () => {
     const id = await seedConsultation({ name: 'joined', status: 'initial' })
 
     const first = await startMeeting(ORG, id)
     const second = await startMeeting(ORG, id)
 
-    expect(first!.status).toBe('recording')
     expect(first!.meeting_started_at).not.toBeNull()
     // A reload, a second participant, a reopened tab: still the same meeting.
     expect(second!.meeting_started_at).toEqual(first!.meeting_started_at)
+  })
+
+  test('being in the room is NOT recording the consultation', async () => {
+    const id = await seedConsultation({ name: 'joined', status: 'initial' })
+
+    const after = await startMeeting(ORG, id)
+
+    // The doctor joins, greets the family, and presses "Iniciar consulta" when
+    // the consultation actually starts. Flipping the status on join took that
+    // decision away — and the button that starts the transcription engine
+    // never appeared, so nothing was ever transcribed.
+    expect(after!.status).toBe('initial')
   })
 
   test('a finished consultation is not re-opened by entering its room', async () => {
@@ -287,5 +298,43 @@ describe('opening and closing the room', () => {
     )
 
     expect(body.data[0]!.room_name).toMatch(/^pediatric-/)
+  })
+})
+
+describe('the transcription engine', () => {
+  test('answers 503 when no flow credentials are configured', async () => {
+    // The preload sets none: nothing is broken, the engine is simply not wired
+    // in this environment, and the screen keeps working without it.
+    const id = await seedConsultation({ name: 'no engine' })
+
+    const response = await call(`/api/consultations/${id}/stream/token`, {
+      method: 'POST',
+      headers: await auth(),
+    })
+
+    expect(response.status).toBe(503)
+    expect(await json<{ error: string }>(response)).toEqual({ error: 'stream_not_configured' })
+  })
+
+  test('a consultation of another org gets no credential', async () => {
+    const id = await seedConsultation({ name: 'ours' })
+
+    const response = await call(`/api/consultations/${id}/stream/token`, {
+      method: 'POST',
+      headers: await auth({ org: OTHER_ORG }),
+    })
+
+    // 404 before the engine is even asked: the org check comes first.
+    expect(response.status).toBe(404)
+  })
+
+  test('each mode runs its own flow', async () => {
+    const { flowForMode } = await import('../src/lib/daguito-stream')
+
+    expect(flowForMode('video')).toBe('realtime-consultation')
+    expect(flowForMode('in_person')).toBe('in-person-consultation')
+    expect(flowForMode('transcription')).toBe('pre-recorded-consultation')
+    // An unknown mode most resembles a single room mic with diarization.
+    expect(flowForMode('telepathy')).toBe('in-person-consultation')
   })
 })

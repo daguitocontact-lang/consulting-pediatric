@@ -54,7 +54,12 @@ export type Workspace = {
  * doctor refreshed mid-consultation.
  */
 export function elapsedSeconds(
-  consultation: { duration_seconds: number; meeting_started_at: string | null; meeting_ended_at: string | null },
+  consultation: {
+    duration_seconds: number
+    status: string
+    meeting_started_at: string | null
+    meeting_ended_at: string | null
+  },
   now: number = Date.now(),
 ): number {
   const banked = Math.max(0, consultation.duration_seconds || 0)
@@ -62,6 +67,11 @@ export function elapsedSeconds(
   // A room that has ended has already banked its time; adding the span again
   // would double the last stretch.
   if (!started || consultation.meeting_ended_at) return banked
+  // A room whose end was never recorded — a closed laptop, a crashed tab —
+  // stays "open" in the database forever, and counting it made a consultation
+  // that lasted eight minutes read 6:14:07 the next morning. The open room only
+  // counts while the consultation itself is running.
+  if (consultation.status !== 'recording') return banked
   const open = (now - new Date(started).getTime()) / 1000
   return banked + Math.max(0, Math.floor(open))
 }
@@ -72,11 +82,31 @@ export { formatDuration } from './consultations'
 /**
  * Whether "Iniciar consulta" can be pressed.
  *
- * The legacy screen showed a yellow "Ingresa a la reunión para iniciar" chip
- * next to a disabled button: recording is fed by the room's audio, so there is
- * nothing to record until the doctor is in it. A finished consultation is done
- * whatever the room says.
+ * Only a VIDEO consultation needs the room first: there the patient is on the
+ * other side of a call and the audio to transcribe is the call's. A presencial
+ * is two people in one office with one microphone, and a transcripción is an
+ * upload — requiring a video room for either is asking the doctor to open a
+ * call to nobody, and it stamps a meeting that never happened.
+ *
+ * A finished consultation is done whatever the room says.
  */
-export function canStartRecording(p: { inMeeting: boolean; status: string }): boolean {
-  return p.inMeeting && p.status !== 'finished'
+export function canStartRecording(p: {
+  inMeeting: boolean
+  status: string
+  mode: string
+}): boolean {
+  if (p.status === 'finished') return false
+  return p.mode === 'video' ? p.inMeeting : true
+}
+
+/**
+ * Whether the room opens by itself when the screen does.
+ *
+ * A video consultation IS the call, so it opens. Every other kind keeps its
+ * room — a parent who could not come, a second opinion, an interpreter — but
+ * behind a button: opening a camera in a consulting room because somebody
+ * opened a screen is not a feature.
+ */
+export function autoJoinsMeeting(mode: string): boolean {
+  return mode === 'video'
 }

@@ -123,6 +123,11 @@ export default defineConfig({
       '@tamagui/shorthands',
       '@tamagui/animations-css',
       '@tamagui/lucide-icons',
+      // The transcription engine's SDK. It MUST be listed: `noDiscovery` above
+      // freezes the optimizer at boot, so a dep that is not here is served
+      // unbundled — and this one ships CJS entrypoints.
+      '@daguito/sdk',
+      '@daguito/sdk/voice',
     ],
   },
   plugins: [

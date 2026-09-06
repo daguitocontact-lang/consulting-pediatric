@@ -21,13 +21,19 @@
  * maximise button on each panel.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Mic, Square, TriangleAlert } from '@tamagui/lucide-icons'
+import { ArrowLeft, Mic, Square, TriangleAlert, Video } from '@tamagui/lucide-icons'
 import { Text, XStack, YStack } from 'tamagui'
 import { apiGet, apiPatch, apiPost, errorMessage, type MountProps } from '../lib/api'
 import { translator } from '../lib/i18n'
 import { useAsync } from '../lib/useAsync'
 import { displayName, formatDuration } from '../lib/consultations'
-import { canStartRecording, elapsedSeconds, type Workspace } from '../lib/workspace'
+import {
+  autoJoinsMeeting,
+  canStartRecording,
+  elapsedSeconds,
+  type Workspace,
+} from '../lib/workspace'
+import { useConsultationStream } from '../lib/useConsultationStream'
 import { JitsiFrame } from '../components/JitsiFrame'
 import { Panel } from '../components/consultation/Panel'
 import {
@@ -57,11 +63,18 @@ export function ConsultationScreen({
   const toast = useToast()
 
   const [inMeeting, setInMeeting] = useState(false)
+  // Whether the room is on screen at all. A video consultation IS the call, so
+  // it opens with the screen; every other kind keeps its room behind a button.
+  const [roomOpen, setRoomOpen] = useState(false)
   const [maximised, setMaximised] = useState<Maximised>(null)
   // Re-renders the clock once a second while the room is open. The value
   // itself is derived from the consultation (see elapsedSeconds), so a reload
   // does not restart it — the legacy timer went back to 00:00 every time.
   const [tick, setTick] = useState(0)
+  // The engine: microphone into the Daguito flow, its output back into our API
+  // (lib/useConsultationStream). The screen reads the results the same way it
+  // reads a note the doctor typed — through the workspace endpoint.
+  const stream = useConsultationStream(props, consultationId)
 
   const state = useAsync<Workspace>(
     () => apiGet<Workspace>(props, `/api/consultations/${consultationId}/workspace`),
@@ -103,6 +116,21 @@ export function ConsultationScreen({
     [consultationId, props],
   )
 
+  // Starting a consultation is two things at once and they must not drift: the
+  // status the listing shows, and the microphone. Stopping is the same pair in
+  // reverse, and the microphone goes first.
+  const startConsultation = useCallback(async () => {
+    await setStatus('recording')
+    await stream.start({ onChange: () => state.refresh() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setStatus, stream.start])
+
+  const stopConsultation = useCallback(async () => {
+    stream.stop()
+    await setStatus('finished')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setStatus, stream.stop])
+
   if (state.loading) {
     return (
       <YStack flex={1} alignItems="center" justifyContent="center" minHeight={280}>
@@ -125,7 +153,12 @@ export function ConsultationScreen({
   }
 
   const label = displayName(consultation, i18n)
-  const canStart = canStartRecording({ inMeeting, status: consultation.status })
+  const canStart = canStartRecording({
+    inMeeting,
+    status: consultation.status,
+    mode: consultation.mode,
+  })
+  const showRoom = roomOpen || autoJoinsMeeting(consultation.mode)
 
   const meetingPanel = (
     <Panel
@@ -133,7 +166,7 @@ export function ConsultationScreen({
         {
           key: 'meeting',
           label: t('workspace.panel.meeting'),
-          content: (
+          content: showRoom ? (
             <JitsiFrame
               props={props}
               i18n={i18n}
@@ -148,6 +181,19 @@ export function ConsultationScreen({
                 state.refresh()
               }}
             />
+          ) : (
+            // The room exists for every consultation — a parent who could not
+            // come, a second opinion, an interpreter — but a presencial does
+            // not open a camera just because the screen was opened.
+            <YStack flex={1} alignItems="center" justifyContent="center" gap="$1" padding="$2">
+              <Video size={22} color="$color10" />
+              <Text fontSize={13} color="$color11" textAlign="center">
+                {t('workspace.room.optional')}
+              </Text>
+              <Button size="sm" variant="secondary" onPress={() => setRoomOpen(true)}>
+                {t('workspace.room.open')}
+              </Button>
+            </YStack>
           ),
         },
       ]}
@@ -277,13 +323,30 @@ export function ConsultationScreen({
             {t('workspace.recording')}
           </Badge>
         ) : null}
+        {stream.state.kind === 'live' ? (
+          <Badge variant="success" size="sm">
+            {stream.state.speaking ? t('workspace.stream.speaking') : t('workspace.stream.live')}
+          </Badge>
+        ) : stream.state.kind === 'connecting' ? (
+          <Badge variant="info" size="sm">
+            {t('workspace.stream.connecting')}
+          </Badge>
+        ) : stream.state.kind === 'unconfigured' ? (
+          <Badge variant="neutral" size="sm">
+            {t('workspace.stream.unconfigured')}
+          </Badge>
+        ) : stream.state.kind === 'error' ? (
+          <Badge variant="warning" size="sm">
+            {t('workspace.stream.error')}
+          </Badge>
+        ) : null}
 
         <XStack flex={1} />
 
         {/* The guard the legacy header showed as a yellow chip: recording is
             fed by the room's audio, so there is nothing to record until the
             doctor is in it. */}
-        {!canStart && consultation.status !== 'finished' ? (
+        {!canStart && consultation.status !== 'finished' && consultation.mode === 'video' ? (
           <XStack
             alignItems="center"
             gap="$0.5"
@@ -304,7 +367,7 @@ export function ConsultationScreen({
             size="sm"
             variant="danger"
             iconBefore={<Square size={14} />}
-            onPress={() => setStatus('finished')}
+            onPress={stopConsultation}
           >
             {t('workspace.stop')}
           </Button>
@@ -314,7 +377,7 @@ export function ConsultationScreen({
             variant="primary"
             disabled={!canStart}
             iconBefore={<Mic size={14} />}
-            onPress={() => setStatus('recording')}
+            onPress={startConsultation}
           >
             {t('workspace.start')}
           </Button>

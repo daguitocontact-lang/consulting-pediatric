@@ -7,6 +7,7 @@
  *   PATCH /api/consultations/:id/recommendations/:rid → featured / removed / clear
  *   PATCH /api/consultations/:id/note               → save the clinical note
  *   POST  /api/consultations/:id/chat               → a message in the assistant thread
+ *   POST  /api/consultations/:id/stream/token       → credentials for the flow
  *
  * The writes are shared: the doctor's own edits come from the panel, and the
  * transcript, the suggestions and the drafted note come from the transcription
@@ -17,6 +18,7 @@ import { Elysia, t } from 'elysia'
 import { requireOrg } from '../../lib/guard'
 import { safeError } from '../../lib/errors'
 import { getConsultation } from '../repos/consultations-repo'
+import { isStreamConfigured, streamCredentials } from '../../lib/daguito-stream'
 import {
   addChatMessage,
   addRecommendations,
@@ -210,3 +212,48 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
       }),
     },
   )
+
+  /**
+   * A scoped credential for this consultation's transcription flow.
+   *
+   * The org's Daguito API key stays in this process: what the browser receives
+   * is a token for ONE session, minutes long. The session key is the
+   * consultation id, so a second doctor opening the same screen joins the same
+   * flow session instead of starting a second transcription.
+   */
+  .post('/stream/token', async ({ request, params, set }) => {
+    const guard = await requireOrg(request)
+    if (!guard.ok) {
+      set.status = guard.status
+      return { error: guard.error }
+    }
+    const consultation = await getConsultation(guard.orgId, params.id)
+    if (!consultation) {
+      set.status = 404
+      return { error: 'not found' }
+    }
+    if (!isStreamConfigured()) {
+      // 503, not 500: nothing is broken, the engine is simply not wired in this
+      // environment. The panel says "sin motor de transcripción" and the rest
+      // of the screen keeps working.
+      set.status = 503
+      return { error: 'stream_not_configured' }
+    }
+    try {
+      return {
+        stream: await streamCredentials({
+          mode: consultation.mode,
+          sessionKey: consultation.id,
+          baseInput: {
+            patient_name: consultation.patient_name ?? undefined,
+            consultation_id: consultation.id,
+          },
+        }),
+      }
+    } catch (err) {
+      // The engine is Daguito's; when it refuses, say so with its own status
+      // rather than a 500 that reads as a bug in this API.
+      set.status = 502
+      return { error: 'stream_unavailable', detail: err instanceof Error ? err.message : 'failed' }
+    }
+  })

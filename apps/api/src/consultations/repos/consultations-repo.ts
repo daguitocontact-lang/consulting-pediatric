@@ -274,16 +274,19 @@ export async function recordConsent(orgId: string, id: string): Promise<Consulta
  * `COALESCE` again: the doctor reloads, the patient joins twice, the tab is
  * reopened — the meeting still started when it started. Re-opening also clears
  * a previous end, because a consultation that resumes has not ended.
+ *
+ * The consultation's STATUS is deliberately untouched. Being in the room and
+ * recording the consultation are two different things — the doctor joins,
+ * greets the family, and presses "Iniciar consulta" when the consultation
+ * actually starts. Flipping the status here took that decision away: the
+ * screen showed "Detener" before anyone had said anything, and the button that
+ * starts the transcription engine never appeared at all.
  */
 export async function startMeeting(orgId: string, id: string): Promise<ConsultationRow | null> {
   const [row] = await sql<{ id: string }[]>`
     UPDATE consultations
        SET meeting_started_at = COALESCE(meeting_started_at, now()),
            meeting_ended_at = NULL,
-           -- Opening the room is what turns a pending consultation into one in
-           -- progress; a finished one is left alone, so re-opening the room to
-           -- re-read something cannot re-open the consultation.
-           status = CASE WHEN status IN ('draft', 'initial') THEN 'recording' ELSE status END,
            updated_at = now()
      WHERE org_id = ${orgId} AND id = ${id}::uuid
      RETURNING id

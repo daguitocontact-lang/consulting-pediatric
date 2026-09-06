@@ -162,6 +162,45 @@ idempotente por el id del evento (columna + índice único parcial), porque los
 reintentos son cinco entregas del mismo evento. La suscripción vive en el repo de
 Daguito (una migración que la inserta apuntando a esta url).
 
+## El motor de la consulta: flows de Daguito
+
+La IA de la consulta NO vive en este repo. Son **flows de Daguito**, los mismos
+que publica el producto legacy (midulabs) y en **la misma cuenta**:
+
+| modo | flow (slug) |
+| --- | --- |
+| `video` | `realtime-consultation` |
+| `in_person` | `in-person-consultation` |
+| `transcription` | `pre-recorded-consultation` |
+
+`POST /api/consultations/:id/stream/token` (`src/lib/daguito-stream.ts`) hace lo
+mismo que el backend Go del legacy: resuelve el webhook del flow por slug
+(`GET /api/sdk/flows?slug=…` con `DAGUITO_STREAM_API_KEY`), abre la sesión
+(`POST /v1/webhooks/:id/stream/open`) y acuña un token corto de rol `bidi`
+(`POST /v1/webhooks/:id/stream-tokens`). **La llave nunca sale de la API**: el
+panel recibe un token para UNA sesión.
+
+El `session_key` es el id de la consulta, así que un segundo médico que abra la
+misma pantalla entra a la misma sesión en vez de arrancar otra transcripción.
+
+**El audio va al sub-canal del doctor.** El grafo declara
+`audio_session_suffix: "doctor"`, así que el nodo STT escucha en
+`<session>:doctor` y NUNCA en la sesión pelada. Mandarlo al key pelado falla del
+peor modo posible: el socket abre, el medidor de nivel se mueve, el flow dice
+`ready` y no llega ni una palabra. Medido: 30 s de voz, cero eventos.
+
+La salida se lee con `OutputStream` (`src/lib/useConsultationStream.ts`): el nodo
+`c_facts` emite recomendaciones y `c_soap` la nota, con el mismo
+`collect_data.streaming_update` que el legacy — por eso `lib/flow-transform.ts`
+es un port fiel de su `services/daguito/transform.ts`. Todo lo que llega se
+persiste por NUESTRAS rutas (`/transcript`, `/recommendations`, `/note` con
+`source: 'engine'`), así que el registro queda en la DB del custom y no en un
+websocket que terminó.
+
+Sin `DAGUITO_STREAM_API_KEY` la ruta responde **503** y la pantalla lo dice
+("Sin motor de transcripción"): sala, nota a mano y hilo del asistente siguen
+funcionando.
+
 ## Releases — el archivo `RELEASE` es el trigger (igual que Daguito)
 
 | Workflow | Trigger |

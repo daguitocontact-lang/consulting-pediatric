@@ -3,9 +3,14 @@
  * clock shows, and when the doctor may start.
  */
 import { describe, expect, test } from 'bun:test'
-import { canStartRecording, elapsedSeconds } from '../src/lib/workspace'
+import { autoJoinsMeeting, canStartRecording, elapsedSeconds } from '../src/lib/workspace'
 
-const base = { duration_seconds: 0, meeting_started_at: null, meeting_ended_at: null }
+const base = {
+  duration_seconds: 0,
+  status: 'recording',
+  meeting_started_at: null,
+  meeting_ended_at: null,
+}
 
 describe('elapsedSeconds', () => {
   test('a consultation that has not started shows what it has banked', () => {
@@ -32,7 +37,12 @@ describe('elapsedSeconds', () => {
     // adding the span again would double the last stretch.
     expect(
       elapsedSeconds(
-        { duration_seconds: 120, meeting_started_at: started, meeting_ended_at: ended },
+        {
+          duration_seconds: 120,
+          status: 'recording',
+          meeting_started_at: started,
+          meeting_ended_at: ended,
+        },
         now,
       ),
     ).toBe(120)
@@ -46,15 +56,51 @@ describe('elapsedSeconds', () => {
       30,
     )
   })
+
+  test('a room left open yesterday does not run the clock today', () => {
+    const started = new Date('2026-02-10T10:00:00Z').toISOString()
+    const now = new Date('2026-02-11T10:00:00Z').getTime()
+
+    // A closed laptop or a crashed tab never records the end, so the room stays
+    // "open" in the database. Counting it made an eight-minute consultation
+    // read 6:14:07 the next morning.
+    expect(
+      elapsedSeconds({ ...base, status: 'initial', duration_seconds: 480, meeting_started_at: started }, now),
+    ).toBe(480)
+  })
 })
 
 describe('canStartRecording', () => {
-  test('needs the doctor in the room — that is where the audio comes from', () => {
-    expect(canStartRecording({ inMeeting: false, status: 'initial' })).toBe(false)
-    expect(canStartRecording({ inMeeting: true, status: 'initial' })).toBe(true)
+  test('a VIDEO consultation needs the room: the audio is the call', () => {
+    expect(canStartRecording({ inMeeting: false, status: 'initial', mode: 'video' })).toBe(false)
+    expect(canStartRecording({ inMeeting: true, status: 'initial', mode: 'video' })).toBe(true)
+  })
+
+  test('a presencial does NOT: two people, one office, one microphone', () => {
+    // Requiring a video room here asks the doctor to open a call to nobody.
+    expect(canStartRecording({ inMeeting: false, status: 'initial', mode: 'in_person' })).toBe(true)
+  })
+
+  test('neither does a transcription — it is an upload', () => {
+    expect(
+      canStartRecording({ inMeeting: false, status: 'initial', mode: 'transcription' }),
+    ).toBe(true)
   })
 
   test('a finished consultation is finished, room or no room', () => {
-    expect(canStartRecording({ inMeeting: true, status: 'finished' })).toBe(false)
+    expect(canStartRecording({ inMeeting: true, status: 'finished', mode: 'video' })).toBe(false)
+    expect(canStartRecording({ inMeeting: false, status: 'finished', mode: 'in_person' })).toBe(
+      false,
+    )
+  })
+})
+
+describe('autoJoinsMeeting', () => {
+  test('only a video consultation opens its room on its own', () => {
+    expect(autoJoinsMeeting('video')).toBe(true)
+    // Opening a camera in a consulting room because somebody opened a screen is
+    // not a feature.
+    expect(autoJoinsMeeting('in_person')).toBe(false)
+    expect(autoJoinsMeeting('transcription')).toBe(false)
   })
 })
