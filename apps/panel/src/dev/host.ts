@@ -47,7 +47,11 @@ const set = (k: string, v: string) => {
 function defaultApiBase(): string {
   const { protocol, hostname } = location
   if (hostname.includes('-panel')) return `${protocol}//${hostname.replace('-panel', '-api')}`
-  return 'http://localhost:4101'
+  // The API port this custom's compose stack publishes (infra/.env, API_PORT).
+  // It is not the template's 4101: a second custom on the same laptop has to
+  // move its ports, and a harness pointing at the other one's API answers 403
+  // for every call — a valid token, the wrong tenant, and no clue why.
+  return 'http://localhost:4111'
 }
 
 // Credentials the dev stack already agrees on, served by the dev-only Vite

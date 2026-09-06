@@ -5,6 +5,7 @@ import { runMigrations } from './lib/migrate'
 import { syncContactFields } from './daguito'
 import { requireOrg } from './lib/guard'
 import { toolSpecs, invokeTool } from './agent/functions'
+import { consultationsModule } from './consultations'
 import { webhooksModule } from './webhooks'
 
 const PORT = Number(process.env.PORT ?? 8080)
@@ -79,16 +80,12 @@ const app = new Elysia()
 
   // ── The custom's domain ───────────────────────────────────────────────
   // Each module is a folder under src/ with `routes/` + `repos/` and an
-  // index.ts exporting one Elysia instance; mount it here:
-  //
-  //   import { bookingsModule } from './bookings'
-  //   ...
-  //   .use(bookingsModule)
-  //
-  // EVERY handler starts with `const guard = await requireOrg(request)` (see
-  // lib/guard.ts) and every query filters by `guard.orgId`. Never call
-  // `verifyDaguitoToken` directly: the org check is what keeps another Daguito
-  // tenant's validly signed token out of this client's data.
+  // index.ts exporting one Elysia instance. EVERY handler starts with
+  // `const guard = await requireOrg(request)` (see lib/guard.ts) and every
+  // query filters by `guard.orgId`. Never call `verifyDaguitoToken` directly:
+  // the org check is what keeps another Daguito tenant's validly signed token
+  // out of this client's data.
+  .use(consultationsModule)
 
   // ── Inbound from Daguito: webhooks ───────────────────────────────────
   // Not token-gated like the rest — the caller is Daguito's delivery worker.

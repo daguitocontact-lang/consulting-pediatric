@@ -7,15 +7,7 @@
 // lands in Daguito.
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
-import {
-  BarChart3,
-  BedDouble,
-  CalendarDays,
-  ConciergeBell,
-  LayoutGrid,
-  Package,
-  Ticket,
-} from '@tamagui/lucide-icons'
+import { Home, LayoutGrid, Stethoscope } from '@tamagui/lucide-icons'
 import { SECTIONS, type NavSectionId } from '../manifest'
 import type { Translator } from '../lib/i18n'
 import { PAGE_MAX_WIDTH } from './PageShell'
@@ -24,13 +16,13 @@ import { PAGE_MAX_WIDTH } from './PageShell'
 // global JSX namespace.
 type IconComponent = typeof LayoutGrid
 
+// One entry per `icon` named in manifest.ts. An unknown name falls back to the
+// grid glyph below rather than breaking the bar, so a new section renders even
+// before its icon is added — but it renders anonymous, which is why they are
+// added together.
 const ICONS: Record<string, IconComponent> = {
-  BarChart3,
-  BedDouble,
-  CalendarDays,
-  ConciergeBell,
-  Package,
-  Ticket,
+  Home,
+  Stethoscope,
 }
 
 export function Shell({

@@ -32,6 +32,7 @@ import { writeSection } from './lib/route'
 import { translator } from './lib/i18n'
 import { useHostTheme, type ThemeMode } from './lib/host-theme'
 import { Page as home } from './pages/home'
+import { Page as consultations } from './pages/consultations'
 
 export type { PanelPage, MountProps }
 
@@ -49,6 +50,7 @@ export type { PanelPage, MountProps }
 export type SectionId = NavSectionId
 
 const PAGES: Record<SectionId, (props: MountProps) => React.ReactElement> = {
+  consultations,
   home,
 }
 

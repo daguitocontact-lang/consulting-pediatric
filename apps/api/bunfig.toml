@@ -1,0 +1,4 @@
+[test]
+# Sets DATABASE_URL and the throwaway signing key before any source module is
+# imported — lib/db and lib/auth both read the environment at import time.
+preload = ["./tests/setup.ts"]

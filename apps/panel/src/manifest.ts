@@ -46,6 +46,7 @@ export type SectionSpec = { id: string; labelKey: Key; icon: string }
  * one a build error instead of a tab that lands nowhere.
  */
 export const SECTIONS = [
+  { id: 'consultations', labelKey: 'nav.consultations', icon: 'Stethoscope' },
   { id: 'home', labelKey: 'nav.home', icon: 'Home' },
 ] as const satisfies readonly SectionSpec[]
 
