@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+infra/.dev-jwt/
+# Documents uploaded in dev, when no R2 is configured (lib/storage.ts).
+apps/api/.storage/
+*.log
+infra/terraform/**/.terraform/
+infra/terraform/**/*.tfstate*
+infra/terraform/**/prod.tfvars
+.DS_Store
+graphify-out/

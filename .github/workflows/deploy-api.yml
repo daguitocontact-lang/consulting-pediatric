@@ -1,0 +1,67 @@
+# Deploy the custom API (+ embedded panel) to ECS. Triggered ONLY by a change to
+# apps/api/RELEASE (same convention as Daguito). No RELEASE bump = no deploy.
+name: deploy-api
+on:
+  push:
+    branches: [main]
+    paths: ['apps/api/RELEASE']
+
+permissions:
+  id-token: write # OIDC to assume the deploy role
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER: pediatric-prod
+  SERVICE: pediatric-prod-api
+  ECR_REPO: pediatric-api
+  TASK_FAMILY: pediatric-prod-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push ARM64 image
+        run: |
+          SHA=$(git rev-parse --short=12 HEAD)
+          REPO=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}
+          echo "REPO=$REPO" >> $GITHUB_ENV
+          echo "SHA=$SHA" >> $GITHUB_ENV
+          docker buildx create --use --name b || true
+          docker buildx build --platform linux/arm64 \
+            -f apps/api/Dockerfile.prod -t "$REPO:$SHA" --push .
+
+      - name: Register task def with new image + roll service
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.TASK_FAMILY }} \
+            --region ${{ env.AWS_REGION }} --query taskDefinition > td.json
+          jq --arg IMG "$REPO:$SHA" '(.containerDefinitions[] | select(.name=="api")).image=$IMG
+            | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' \
+            td.json > td.new.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://td.new.json \
+            --region ${{ env.AWS_REGION }} --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service --cluster ${{ env.CLUSTER }} --service ${{ env.SERVICE }} \
+            --task-definition "$ARN" --force-new-deployment --region ${{ env.AWS_REGION }}
+          aws ecs wait services-stable --cluster ${{ env.CLUSTER }} --services ${{ env.SERVICE }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Notify Discord
+        if: always()
+        run: |
+          STATUS='${{ job.status }}'
+          [ "$STATUS" = success ] && MSG='✅ Correcto' || MSG='❌ Falló'
+          curl -s -H 'Content-Type: application/json' -X POST \
+            -d "{\"embeds\":[{\"title\":\"deploy-api · pediatric\",\"description\":\"Version: $SHA\\nStatus: $MSG\\nCommit: ${{ github.sha }} · main\"}]}" \
+            "${{ secrets.DISCORD_DEPLOY_WEBHOOK }}" || true

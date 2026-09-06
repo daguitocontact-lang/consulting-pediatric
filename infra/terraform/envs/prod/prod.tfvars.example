@@ -1,0 +1,31 @@
+# Copy to prod.tfvars and fill. A NEW custom only edits this file.
+client_name = "pediatric"
+domain      = "pediatric-api.daguito.com" # two levels: covered by the universal *.daguito.com cert
+db_name     = "pediatric"
+db_username = "pediatric_app"
+
+# The Daguito org(s) this custom serves. REQUIRED — the API will not boot
+# without it, and it is what stops another org's (validly signed) token from
+# reading this client's data. Comma-separated for a staging org alongside prod.
+daguito_org_ids = "REPLACE_ME"
+
+# GitHub repo of this custom: its `main` may assume the CI deploy role. The ids
+# form is optional (survives renames): gh api repos/<owner>/<repo> -q '"\(.owner.id) \(.id)"'
+github_repo     = "REPLACE_ME/consulting-pediatric"
+github_repo_ids = "" # optional, rename-proof: gh api repos/<owner>/<repo> -q "\(.owner.id) \(.id)"
+
+# Cloudflare (daguito.com zone). Get from the Cloudflare dashboard.
+cloudflare_account_id = "REPLACE_ME"
+cloudflare_zone_id    = "REPLACE_ME"
+
+# Daguito's RS256 PUBLIC key (PEM). Read from SSM /daguito/prod/api/AUTH_JWT_PUBLIC_KEY.
+daguito_jwt_public_key = <<-EOT
+-----BEGIN PUBLIC KEY-----
+REPLACE_ME
+-----END PUBLIC KEY-----
+EOT
+
+# First apply uses the busybox placeholder; CI/scripts/deploy.sh push the real image.
+# Every apply registers a task-def revision from this value and CI clones the
+# LATEST revision, so keep it at the running image once one exists.
+# image = "<account>.dkr.ecr.us-east-1.amazonaws.com/pediatric-api:<sha>"

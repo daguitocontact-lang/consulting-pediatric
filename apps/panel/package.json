@@ -1,0 +1,30 @@
+{
+  "name": "@pediatric/panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@tamagui/vite-plugin": "1.144.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vite-plugin-css-injected-by-js": "^5.0.2"
+  },
+  "dependencies": {
+    "@tamagui/animations-css": "1.144.3",
+    "@tamagui/config": "1.144.3",
+    "@tamagui/input": "1.144.3",
+    "@tamagui/lucide-icons": "1.144.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-native-web": "^0.21.2",
+    "tamagui": "1.144.3"
+  }
+}

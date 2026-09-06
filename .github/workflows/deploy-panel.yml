@@ -1,0 +1,126 @@
+# Deploy the micro-frontend panel (apps/panel → R2 bucket `pediatric-panel`,
+# served at https://pediatric-panel.daguito.com/panel.js). Triggered ONLY by a
+# change to apps/panel/RELEASE (same convention as deploy-api). No RELEASE
+# bump = no deploy. The API image does NOT carry the panel (see
+# apps/api/Dockerfile.prod), so this is the only path that ships UI changes.
+#
+# A deploy propagates ON ITS OWN — there is no `?b=` to bump by hand any more.
+# Two things make that true, and both have to stay:
+#   1. the upload sets a 60s Cache-Control, and the zone cache rule in
+#      modules/r2-panel makes Cloudflare respect it instead of imposing the
+#      zone default of four hours (edge AND browser),
+#   2. this workflow purges the url after uploading, so the new bundle is live
+#      at once rather than within the minute.
+# If a release ever fails to show up, check that rule first: without it the
+# zone default comes back and the panel goes stale for four hours.
+name: deploy-panel
+on:
+  push:
+    branches: [main]
+    paths: ['apps/panel/RELEASE']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUCKET: pediatric-panel
+  PANEL_URL: https://pediatric-panel.daguito.com/panel.js
+  ZONE_NAME: daguito.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        working-directory: apps/panel
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: apps/panel
+        run: bun run typecheck
+
+      - name: Build panel.js
+        working-directory: apps/panel
+        env:
+          NODE_ENV: production
+        run: |
+          bun run build
+          ls -la dist/panel.js
+
+      # Wrangler reads CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID from env.
+      # Short max-age: Daguito imports ONE url, so there is no hashed filename
+      # to make immutable — a fresh deploy must propagate on its own.
+      - name: Upload panel.js to R2
+        working-directory: apps/panel
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 r2 object put "$BUCKET/panel.js" \
+            --file=dist/panel.js \
+            --content-type="application/javascript; charset=utf-8" \
+            --cache-control="public, max-age=60, must-revalidate" \
+            --remote
+
+      # Belt and braces on top of the 60s TTL: the edge drops its copy the
+      # moment the new one is up. The zone id is looked up by name so this
+      # needs no extra config. The token is its OWN secret, CLOUDFLARE_PURGE_TOKEN,
+      # scoped to daguito.com with Zone:Zone:Read + Zone:Cache Purge:Purge and
+      # nothing else — the R2 token stays an R2 token. It is an ACCOUNT-owned
+      # token (cfat_…), which /user/tokens/verify rejects, so the zone lookup
+      # is the check: a token that cannot see the zone cannot purge it either.
+      # Until that secret exists
+      # the step falls back to the R2 token, which cannot purge (error 10000)
+      # and says so; the release still goes out on the 60s TTL.
+      - name: Purge the CDN copy
+        continue-on-error: true
+        env:
+          CLOUDFLARE_PURGE_TOKEN: ${{ secrets.CLOUDFLARE_PURGE_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          USING_FALLBACK: ${{ secrets.CLOUDFLARE_PURGE_TOKEN == '' }}
+        run: |
+          set -o pipefail
+          api=https://api.cloudflare.com/client/v4
+          auth="Authorization: Bearer $CLOUDFLARE_PURGE_TOKEN"
+          if [ "$USING_FALLBACK" = "true" ]; then
+            echo "::notice::CLOUDFLARE_PURGE_TOKEN is not set; trying the R2 token (it normally cannot purge)"
+          fi
+          zone=$(curl -sS -H "$auth" "$api/zones?name=$ZONE_NAME" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("result") or [{}])[0].get("id",""))')
+          if [ -z "$zone" ]; then
+            echo "::warning::zone $ZONE_NAME not visible to this token — it needs Zone:Zone:Read on daguito.com. Skipping purge (the 60s TTL still applies)"
+            exit 0
+          fi
+          curl -sS -X POST -H "$auth" -H 'Content-Type: application/json' \
+            --data "{\"files\":[\"$PANEL_URL\"]}" "$api/zones/$zone/purge_cache" \
+            | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          if d.get("success"):
+              print("purged", sys.argv[1])
+          else:
+              print("::warning::cache purge refused (%s). Create a token with Zone:Zone:Read + Zone:Cache Purge:Purge on daguito.com and store it as the CLOUDFLARE_PURGE_TOKEN secret. The 60s TTL still propagates the release." % d.get("errors"))
+          ' "$PANEL_URL"
+
+      - name: Smoke check
+        run: |
+          size=$(curl -s -o /dev/null -w '%{size_download}' --max-time 20 \
+            -H 'Cache-Control: no-cache' "$PANEL_URL?smoke=${{ github.sha }}")
+          echo "panel.js -> $size bytes"
+          test "$size" -gt 100000
+
+      - name: Notify Discord
+        if: always()
+        run: |
+          STATUS='${{ job.status }}'
+          [ "$STATUS" = success ] && MSG='✅ Correcto' || MSG='❌ Falló'
+          curl -s -H 'Content-Type: application/json' -X POST \
+            -d "{\"embeds\":[{\"title\":\"deploy-panel · pediatric\",\"description\":\"Status: $MSG\\nCommit: ${{ github.sha }} · main\"}]}" \
+            "${{ secrets.DISCORD_DEPLOY_WEBHOOK }}" || true

@@ -1,0 +1,87 @@
+# Local dev stack for the custom: Postgres + API (Bun, watch) + panel (Vite, HMR).
+#
+# There is NO AWS dev environment for a custom — same as Daguito, whose Terraform
+# is prod-only and whose dev runs on Docker + Cloudflare Tunnels. Dev is this
+# compose stack, optionally exposed on public `*-<user>.daguito.com` hostnames
+# through per-developer tunnels (scripts/dev/setup-tunnels.sh) so Daguito's app
+# can import the panel and call the API over HTTPS from a real browser origin.
+#
+#   cp infra/.env.example infra/.env      # once
+#   docker compose -f infra/docker-compose.dev.yml up -d
+#
+# Compose reads infra/.env automatically (the project dir is this file's dir).
+# Ports sit in the 4100s / 5442 so a Daguito dev stack (4000s / 5433) can run
+# side by side without collisions.
+name: pediatric
+
+services:
+  # ── Postgres (mirrors RDS: plain Postgres 16, no TLS locally) ────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pediatric_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pediatric}
+      POSTGRES_DB: ${POSTGRES_DB:-pediatric}
+    ports:
+      - '${POSTGRES_PORT:-5442}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [pediatric]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-pediatric_app} -d ${POSTGRES_DB:-pediatric}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # ── API (Elysia/Bun). Migrations run on boot, as in prod. ────────────
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api/Dockerfile.dev
+    env_file: [.env]
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      # The compose Postgres speaks plain TCP; RDS refuses non-TLS. See db.ts.
+      DB_SSL: disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-pediatric_app}:${POSTGRES_PASSWORD:-pediatric}@postgres:5432/${POSTGRES_DB:-pediatric}
+    ports:
+      - '${API_PORT:-4101}:8080'
+    volumes:
+      - ../apps/api:/app/apps/api
+      # Same isolation as the panel: deps come from the image, never the host's.
+      - /app/apps/api/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [pediatric]
+
+  # ── Panel (Vite dev server, module-federation-free ESM remote) ───────
+  # Serves /panel.js just like R2 does in prod, so Daguito's import URL is the
+  # only thing that changes between dev and prod.
+  panel:
+    build:
+      context: ..
+      dockerfile: infra/panel/Dockerfile.dev
+    env_file: [.env]
+    environment:
+      PANEL_PORT: 4102
+    ports:
+      - '${PANEL_PORT:-4102}:4102'
+    volumes:
+      - ../apps/panel:/app/apps/panel
+      # Anonymous volume so the container keeps its OWN node_modules instead of
+      # the host's. Without it the bind mount shares node_modules/.vite — Vite's
+      # dependency-optimizer cache — between the host (bun run build/dev) and the
+      # container, and two optimizer processes writing one cache hand the browser
+      # two different React chunks: "Invalid hook call ... more than one copy of
+      # React in the same app", and every page dies on its first useState.
+      - /app/apps/panel/node_modules
+    networks: [pediatric]
+
+volumes:
+  postgres_data:
+
+networks:
+  pediatric:

@@ -1,0 +1,13 @@
+# API-only image (ARM64, Fargate). The micro-frontend panel is NOT bundled here —
+# it lives in R2 + CDN. This service serves only JSON (/health, /api/status,
+# /agent/functions).
+FROM oven/bun:1 AS runtime
+WORKDIR /app
+COPY apps/api/package.json ./
+RUN bun install --production
+COPY apps/api/ ./
+
+ENV NODE_ENV=production
+ENV PORT=8080
+EXPOSE 8080
+CMD ["bun", "src/index.ts"]

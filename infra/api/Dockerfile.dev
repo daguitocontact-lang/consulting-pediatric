@@ -1,0 +1,20 @@
+# Dev image for the custom API: Bun in watch mode. The source is bind-mounted by
+# infra/docker-compose.dev.yml, so a save on the host restarts the server.
+#
+# Dependencies are installed at /app/node_modules — one level ABOVE the
+# bind-mount target (/app/apps/api) — on purpose. Mounting the source over a
+# directory that also holds node_modules would shadow them, and the usual
+# workaround (an anonymous volume over node_modules) is exactly what silently
+# serves stale deps after a package.json change. Bun resolves by walking up, so
+# this layout needs neither.
+FROM oven/bun:1-alpine
+
+WORKDIR /app
+COPY apps/api/package.json ./package.json
+RUN bun install
+
+WORKDIR /app/apps/api
+ENV NODE_ENV=development
+ENV PORT=8080
+EXPOSE 8080
+CMD ["bun", "--watch", "src/index.ts"]

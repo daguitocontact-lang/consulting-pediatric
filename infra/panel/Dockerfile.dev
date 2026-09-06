@@ -1,0 +1,16 @@
+# Dev image for the micro-frontend panel: Vite dev server with HMR. The source is
+# bind-mounted by infra/docker-compose.dev.yml.
+#
+# Same node_modules-above-the-mount trick as the API image (see
+# infra/api/Dockerfile.dev) — deps live at /app/node_modules, the bind mount
+# lands on /app/apps/panel.
+FROM oven/bun:1-alpine
+
+WORKDIR /app
+COPY apps/panel/package.json apps/panel/bun.lock ./
+RUN bun install
+
+WORKDIR /app/apps/panel
+ENV NODE_ENV=development
+EXPOSE 4102
+CMD ["bun", "run", "dev"]

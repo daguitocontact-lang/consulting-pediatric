@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pediatric panel — dev harness</title>
+    <!-- Same font as Daguito's shell (apps/web/index.html): in prod the host
+         loads it, so the panel never bundles a font. Without this the harness
+         renders Tamagui text in the browser's serif and looks nothing like the
+         real thing. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&display=swap"
+    />
+  </head>
+  <body>
+    <!--
+      DEV ONLY. Vite's library build (see vite.config.ts) takes src/entry.ts as its
+      entry and ignores index.html, so nothing here ever reaches dist/panel.js.
+      This page stands in for Daguito: it reads the manifest and calls
+      mount/unmount with the same props the host passes in prod.
+    -->
+    <div id="host"></div>
+    <script type="module" src="/src/dev/host.ts"></script>
+  </body>
+</html>
