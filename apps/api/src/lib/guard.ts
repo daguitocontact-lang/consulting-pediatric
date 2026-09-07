@@ -14,13 +14,13 @@ import { authorize, AuthError } from './auth'
  * token, 403 = valid token from an org this custom does not serve.
  */
 export type Guard =
-  | { ok: true; orgId: string; userId: string }
+  | { ok: true; orgId: string; userId: string; userName: string | null }
   | { ok: false; status: 401 | 403; error: 'unauthorized' | 'forbidden' }
 
 export async function requireOrg(request: Request): Promise<Guard> {
   try {
-    const { orgId, userId } = await authorize(request)
-    return { ok: true, orgId, userId }
+    const { orgId, userId, userName } = await authorize(request)
+    return { ok: true, orgId, userId, userName }
   } catch (err) {
     const status = err instanceof AuthError ? err.status : 401
     return { ok: false, status, error: status === 403 ? 'forbidden' : 'unauthorized' }

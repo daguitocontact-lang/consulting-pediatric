@@ -7,11 +7,12 @@
  * callbacks that write back, so the screen holds the state and these hold none.
  */
 import { useState } from 'react'
-import { Stethoscope } from '@tamagui/lucide-icons'
+import { FileText, Stethoscope } from '@tamagui/lucide-icons'
 import { ScrollView, Text, XStack, YStack } from 'tamagui'
 import type { translator } from '../../lib/i18n'
 import { formatDuration } from '../../lib/consultations'
 import type { ClinicalNote, Recommendation, TranscriptSegment } from '../../lib/workspace'
+import type { PartialLine } from '../../lib/useConsultationStream'
 import { PanelEmpty } from './Panel'
 import { Badge, Button } from '../ui'
 
@@ -30,8 +31,9 @@ export function RecommendationsPanel({
   if (!recommendations.length) {
     return (
       <PanelEmpty
-        icon={<Stethoscope size={22} color="$color10" />}
+        icon={<Stethoscope size={20} color="$color10" />}
         label={t('workspace.recommendations.empty')}
+        hint={t('workspace.recommendations.emptyHint')}
       />
     )
   }
@@ -212,12 +214,38 @@ export function NotePanel({
 export function TranscriptionPanel({
   i18n,
   segments,
+  partials = [],
 }: {
   i18n: ReturnType<typeof translator>
   segments: TranscriptSegment[]
+  /**
+   * What is being said right now, before the sentence is finished.
+   *
+   * Shown greyed and italic, never stored. Without it the panel sits blank for
+   * whole sentences at a time while the flow waits for a pause, and a doctor
+   * cannot tell that from a microphone that is not working — which is the
+   * failure the level meter in the header was added to compensate for. The
+   * legacy app shows the same thing from the same `node.token` events.
+   */
+  partials?: PartialLine[]
 }) {
   const { t } = i18n
-  if (!segments.length) return <PanelEmpty label={t('workspace.transcript.empty')} />
+  if (!segments.length && !partials.length) {
+    return (
+      <PanelEmpty
+        icon={<FileText size={20} color="$color10" />}
+        label={t('workspace.transcript.empty')}
+        hint={t('workspace.transcript.emptyHint')}
+      />
+    )
+  }
+
+  const speakerLabel = (speaker: string | null) =>
+    speaker === 'doctor'
+      ? t('workspace.transcript.doctor')
+      : speaker === 'patient'
+        ? t('workspace.transcript.patient')
+        : (speaker ?? '')
 
   return (
     <ScrollView flex={1}>
@@ -230,15 +258,29 @@ export function TranscriptionPanel({
             <YStack flex={1} gap="$0.25">
               {segment.speaker ? (
                 <Text fontSize={11} fontWeight="700" color="$color11">
-                  {segment.speaker === 'doctor'
-                    ? t('workspace.transcript.doctor')
-                    : segment.speaker === 'patient'
-                      ? t('workspace.transcript.patient')
-                      : segment.speaker}
+                  {speakerLabel(segment.speaker)}
                 </Text>
               ) : null}
               <Text fontSize={13} color="$color" lineHeight={19}>
                 {segment.text}
+              </Text>
+            </YStack>
+          </XStack>
+        ))}
+
+        {partials.map((line, index) => (
+          <XStack key={`partial-${index}`} gap="$0.75" alignItems="flex-start">
+            <Text fontSize={11} color="$color10" width={44}>
+              …
+            </Text>
+            <YStack flex={1} gap="$0.25">
+              {line.speaker ? (
+                <Text fontSize={11} fontWeight="700" color="$color10">
+                  {speakerLabel(line.speaker)}
+                </Text>
+              ) : null}
+              <Text fontSize={13} color="$color10" lineHeight={19} fontStyle="italic">
+                {line.text}
               </Text>
             </YStack>
           </XStack>

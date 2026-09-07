@@ -34,6 +34,24 @@ export type ConsultationRow = {
   status: ConsultationStatus
   template_id: string | null
   template_title: string | null
+  /**
+   * A model pinned to THIS consultation, or null for whatever the flow's own
+   * node declares. The legacy `consultations.llm_model_id`; it reaches the
+   * engine as `model` in the base_input.
+   */
+  llm_model: string | null
+  /** The uploaded recording of a `transcription` consultation (0006). */
+  audio_key: string | null
+  audio_mime: string | null
+  audio_bytes: number | null
+  /** Why the last pre-recorded run failed, in the flow's own words. */
+  transcription_error: string | null
+  /** What Daguito charged, in the legacy's four buckets (0006). */
+  streaming_cost_usd: string
+  facts_cost_usd: string
+  template_cost_usd: string
+  chatbot_cost_usd: string
+  total_cost_usd: string
   duration_seconds: number
   notes: string | null
   patient_consent_at: string | null
@@ -54,6 +72,7 @@ export type ConsultationInput = {
   mode?: ConsultationMode
   status?: ConsultationStatus
   templateId?: string | null
+  llmModel?: string | null
   notes?: string | null
 }
 
@@ -86,7 +105,11 @@ const FOLDED_NAME = sql`pediatric_fold(COALESCE(c.name, c.patient_name))`
 
 const SELECT = sql`
   SELECT c.id, c.patient_contact_id, c.patient_name, c.name, c.language, c.mode, c.status,
-         c.template_id, t.title AS template_title, c.duration_seconds, c.notes,
+         c.template_id, t.title AS template_title, c.llm_model,
+         c.audio_key, c.audio_mime, c.audio_bytes, c.transcription_error,
+         c.streaming_cost_usd, c.facts_cost_usd, c.template_cost_usd,
+         c.chatbot_cost_usd, c.total_cost_usd,
+         c.duration_seconds, c.notes,
          c.patient_consent_at, c.room_name, c.meeting_started_at, c.meeting_ended_at,
          c.created_by, c.created_at, c.updated_at
     FROM consultations c
@@ -215,6 +238,7 @@ export async function updateConsultation(p: {
   if (patch.mode !== undefined) columns.mode = patch.mode
   if (patch.status !== undefined) columns.status = patch.status
   if (patch.templateId !== undefined) columns.template_id = patch.templateId
+  if (patch.llmModel !== undefined) columns.llm_model = patch.llmModel
   if (patch.notes !== undefined) columns.notes = patch.notes
 
   if (!Object.keys(columns).length) return getConsultation(p.orgId, p.id)
@@ -341,4 +365,103 @@ export async function countByMode(
     counts.all += Number(row.total)
   }
   return counts
+}
+
+/**
+ * Attach the uploaded recording of a `transcription` consultation.
+ *
+ * The KEY, never a URL (lib/storage.ts): the bucket is private, the API is the
+ * only thing that signs a link for it, and a key on its own opens nothing.
+ * Attaching clears the previous run's error — a re-upload is a retry.
+ */
+export async function attachAudio(p: {
+  orgId: string
+  id: string
+  key: string
+  mime: string
+  bytes: number
+}): Promise<ConsultationRow | null> {
+  const [row] = await sql<{ id: string }[]>`
+    UPDATE consultations
+       SET audio_key = ${p.key}, audio_mime = ${p.mime}, audio_bytes = ${p.bytes},
+           transcription_error = NULL, updated_at = now()
+     WHERE org_id = ${p.orgId} AND id = ${p.id}::uuid
+     RETURNING id
+  `
+  return row ? getConsultation(p.orgId, row.id) : null
+}
+
+/** Forget the recording. The bytes are the caller's to delete first. */
+export async function detachAudio(orgId: string, id: string): Promise<void> {
+  await sql`
+    UPDATE consultations
+       SET audio_key = NULL, audio_mime = NULL, audio_bytes = NULL,
+           transcription_error = NULL, updated_at = now()
+     WHERE org_id = ${orgId} AND id = ${id}::uuid
+  `
+}
+
+/**
+ * Record why a pre-recorded run failed, and hand the consultation back.
+ *
+ * The status returns to `initial` rather than staying `processing`: a
+ * consultation stuck in "procesando" forever is the shape of a bug the doctor
+ * cannot act on, and the recording is still attached, so the retry is one
+ * button. Null clears it, which is what a run that succeeds does.
+ */
+export async function setTranscriptionError(p: {
+  orgId: string
+  id: string
+  error: string | null
+}): Promise<void> {
+  await sql`
+    UPDATE consultations
+       SET transcription_error = ${p.error}, updated_at = now()
+     WHERE org_id = ${p.orgId} AND id = ${p.id}::uuid
+  `
+}
+
+/**
+ * What Daguito charged for one stretch of engine work, added to the row.
+ *
+ * ADDED, never set: a consultation is billed across many emits, and a
+ * consultation that is recorded, paused and resumed bills three times. The
+ * legacy bridge persisted the running totals the same way, throttled; here the
+ * panel sends its accumulator when the consultation stops and after each
+ * pre-recorded run, which is the same arithmetic with far fewer writes.
+ *
+ * `total_cost_usd` is kept denormalized and consistent in the same statement —
+ * a total that has to be recomputed by a reader is a total that drifts.
+ */
+export async function addCosts(p: {
+  orgId: string
+  id: string
+  streaming?: number
+  streamingCount?: number
+  facts?: number
+  factsCount?: number
+  template?: number
+  templateCount?: number
+  chatbot?: number
+  chatbotCount?: number
+}): Promise<void> {
+  const streaming = p.streaming ?? 0
+  const facts = p.facts ?? 0
+  const template = p.template ?? 0
+  const chatbot = p.chatbot ?? 0
+  if (!streaming && !facts && !template && !chatbot) return
+  await sql`
+    UPDATE consultations
+       SET streaming_cost_usd = streaming_cost_usd + ${streaming},
+           streaming_count    = streaming_count + ${p.streamingCount ?? 0},
+           facts_cost_usd     = facts_cost_usd + ${facts},
+           facts_count        = facts_count + ${p.factsCount ?? 0},
+           template_cost_usd  = template_cost_usd + ${template},
+           template_count     = template_count + ${p.templateCount ?? 0},
+           chatbot_cost_usd   = chatbot_cost_usd + ${chatbot},
+           chatbot_count      = chatbot_count + ${p.chatbotCount ?? 0},
+           total_cost_usd     = total_cost_usd + ${streaming + facts + template + chatbot},
+           updated_at = now()
+     WHERE org_id = ${p.orgId} AND id = ${p.id}::uuid
+  `
 }

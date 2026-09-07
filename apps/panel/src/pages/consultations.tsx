@@ -20,13 +20,15 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
-import { Video } from '@tamagui/lucide-icons'
+import { Plus, Video } from '@tamagui/lucide-icons'
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage, type MountProps } from '../lib/api'
 import { translator } from '../lib/i18n'
 import { useAsync } from '../lib/useAsync'
 import { useDebounced } from '../lib/useDebounced'
 import {
+  DEFAULT_MODE,
   MODE_KEY,
+  OFFERED_MODES,
   STATUS_KEY,
   displayName,
   formatDuration,
@@ -54,7 +56,20 @@ type TabKey = 'all' | ConsultationMode
 type Template = { id: string; title: string; scope: 'org' | 'personal'; active: boolean }
 
 const PAGE_SIZE = 10
-const TABS: TabKey[] = ['all', 'video', 'in_person', 'transcription']
+
+/**
+ * The tabs, derived from the modes the panel offers rather than hardcoded.
+ *
+ * With a single offered mode the bar is dropped entirely (see `showTabs`): a
+ * filter with one option filters nothing. It comes back on its own the day a
+ * second mode is offered again — the tab list is the constant, not a copy of
+ * it that has to be remembered.
+ */
+const TABS: TabKey[] = ['all', ...OFFERED_MODES]
+
+/** A row created in a mode the panel no longer offers still lists and still
+ *  opens; only the filter for it goes away. Hiding data is not the ask. */
+const showTabs = OFFERED_MODES.length > 1
 
 /** Milliseconds between refreshes while a consultation is still moving. The
  *  legacy page used ten seconds and stopped as soon as nothing was processing;
@@ -141,19 +156,30 @@ export function Page(props: MountProps) {
   )
 
   const createFields: FieldSpec[] = [
-    {
-      name: 'mode',
-      label: t('consultations.form.mode'),
-      type: 'select',
-      required: true,
-      options: [
-        { value: 'in_person', label: t('consultations.mode.inPerson') },
-        { value: 'video', label: t('consultations.mode.video') },
-        { value: 'transcription', label: t('consultations.mode.transcription') },
-      ],
-    },
+    // A required select with ONE option is a question with one answer: it is
+    // dropped, and the mode is filled in on submit. The field returns by
+    // itself the day OFFERED_MODES grows.
+    ...(OFFERED_MODES.length > 1
+      ? [
+          {
+            name: 'mode',
+            label: t('consultations.form.mode'),
+            type: 'select' as const,
+            required: true,
+            options: OFFERED_MODES.map((mode) => ({
+              value: mode,
+              label: t(MODE_KEY[mode]),
+            })),
+          },
+        ]
+      : []),
+    // ONE patient field. It was two — the CRM picker and a free-text name —
+    // which is two questions for one answer, and left the row to be titled by
+    // whichever the doctor happened to fill. The picker wins because the
+    // patient IS a contact in Daguito: the name comes back with the id (see
+    // `<field>_label` in CreateForm) and is stored beside it so the listing can
+    // sort and search by a name that lives in this database.
     { name: 'patient_contact_id', label: t('consultations.form.patient'), type: 'contact' },
-    { name: 'patient_name', label: t('consultations.form.patientName') },
     { name: 'name', label: t('consultations.form.name') },
     {
       name: 'template_id',
@@ -308,27 +334,34 @@ export function Page(props: MountProps) {
     <PageShell
       title={t('consultations.title')}
       repeatsSection
-      titleAside={
-        list.refreshing ? <Spinner /> : <Text fontSize={13} color="$color11">
-          {plural(total, 'consultations.count')}
-        </Text>
-      }
+      subtitle={list.loading ? t('common.loading') : plural(total, 'consultations.count')}
+      titleAside={list.refreshing ? <Spinner /> : null}
+      // Search and create on the title row, as on every list of the platform.
       actions={
-        <Button variant="primary" size="sm" onPress={() => setCreating(true)}>
-          {t('consultations.new')}
-        </Button>
+        <>
+          <SearchField
+            width={340}
+            value={query}
+            onChange={(value) => onFilter(() => setQuery(value))}
+            ariaLabel={t('consultations.searchLabel')}
+            placeholder={t('consultations.searchHint')}
+          />
+          <Button
+            size="lg"
+            variant="primary"
+            iconBefore={<Plus size={14} />}
+            onPress={() => setCreating(true)}
+          >
+            {t('consultations.new')}
+          </Button>
+        </>
       }
     >
-      <Tabs<TabKey> tabs={tabs} value={tab} onChange={(key) => onFilter(() => setTab(key))} fit />
+      {showTabs ? (
+        <Tabs<TabKey> tabs={tabs} value={tab} onChange={(key) => onFilter(() => setTab(key))} fit />
+      ) : null}
 
       <XStack gap="$1" alignItems="flex-end" flexWrap="wrap">
-        <SearchField
-          label={t('consultations.searchLabel')}
-          ariaLabel={t('consultations.searchLabel')}
-          placeholder={t('consultations.searchHint')}
-          value={query}
-          onChange={(value) => onFilter(() => setQuery(value))}
-        />
         <DateField
           label={t('consultations.dateLabel')}
           value={day}
@@ -390,18 +423,31 @@ export function Page(props: MountProps) {
         fields={createFields}
         onClose={() => setCreating(false)}
         onSubmit={async (values) => {
-          await apiPost(props, '/api/consultations', {
-            mode: values.mode || 'in_person',
-            patient_contact_id: values.patient_contact_id || null,
-            patient_name: values.patient_name || null,
-            name: values.name || null,
-            template_id: values.template_id || null,
-            notes: values.notes || null,
-          })
+          const { consultation } = await apiPost<{ consultation: Consultation }>(
+            props,
+            '/api/consultations',
+            {
+              mode: values.mode || DEFAULT_MODE,
+              patient_contact_id: values.patient_contact_id || null,
+              // The name travels with the id the picker returned. Denormalised
+              // on purpose: a name that only exists in Daguito cannot appear in
+              // an ORDER BY here.
+              patient_name: values.patient_contact_id_label || null,
+              name: values.name || null,
+              template_id: values.template_id || null,
+              notes: values.notes || null,
+            },
+          )
           setCreating(false)
           setPage(1)
           list.reload()
           toast.success(t('consultations.toast.created'))
+          // Straight into it, the way the legacy's create navigates
+          // (`useCreateConsultation` → navigate(consultationUrl + uuid)).
+          // Creating a consultation is not filing one: the doctor made it
+          // because the patient is in front of them, and being dropped back on
+          // the list to hunt for the row they just made is a step nobody wants.
+          setOpenId(consultation.id)
         }}
       />
 

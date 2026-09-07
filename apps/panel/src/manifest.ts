@@ -47,7 +47,12 @@ export type SectionSpec = { id: string; labelKey: Key; icon: string }
  */
 export const SECTIONS = [
   { id: 'consultations', labelKey: 'nav.consultations', icon: 'Stethoscope' },
-  { id: 'home', labelKey: 'nav.home', icon: 'Home' },
+  { id: 'templates', labelKey: 'nav.templates', icon: 'FileText' },
+  // `home` is deliberately NOT here. It is the template's placeholder page and
+  // has nothing on it yet, so it is not worth a third of the top bar — but the
+  // module still ships and still mounts (see PAGES in entry.tsx), so an old
+  // link to it lands somewhere real instead of on "no conozco la página", and
+  // putting it back is this one line.
 ] as const satisfies readonly SectionSpec[]
 
 /** The sections the top bar offers. */

@@ -17,8 +17,14 @@
  *     renamed key renders empty and the assistant answers that it has no note
  *     when it does.
  */
-import { runWebhookStream } from '@daguito/sdk'
-import { resolveFlowWebhook, streamApiUrl, isStreamConfigured } from './daguito-stream'
+import { WebhookStreamSession } from '@daguito/sdk'
+import { clientToolSpecs, serveClientTools, type ClientTool } from './client-tools'
+import {
+  fetchSessionCost,
+  resolveFlowWebhook,
+  streamApiUrl,
+  isStreamConfigured,
+} from './daguito-stream'
 
 const CHATBOT_FLOW = 'consultation-chatbot'
 
@@ -28,6 +34,9 @@ const TURN_TIMEOUT_MS = 90_000
 export type AssistantTurn = {
   reply: string
   status: 'completed' | 'failed' | 'unknown'
+  /** Which note tools actually ran. The route uses it to know the note
+   *  changed without diffing it. */
+  tools_used: string[]
 }
 
 /**
@@ -81,31 +90,115 @@ export const isAssistantConfigured = isStreamConfigured
 export async function askAssistant(p: {
   consultationId: string
   message: string
-  /** The clinical note as it stands, so the assistant can read what is written. */
-  note?: string | null
+  /**
+   * The WORKING DOCUMENT the assistant reads: the clinical note as it stands,
+   * or — when nothing has been written yet — the authored template body with
+   * its `[[placeholders]]` still in place. See the caller for why the second
+   * half matters.
+   */
+  workingDoc?: string | null
   /** What has been transcribed so far. */
   transcript?: string | null
   language?: string
+  /** The tools it may call — `get_template_structure` and `fill_field`, so it
+   *  can write the note instead of describing what to write. */
+  tools?: ClientTool[]
 }): Promise<AssistantTurn> {
   const webhook = await resolveFlowWebhook(CHATBOT_FLOW)
+  const tools = p.tools ?? []
 
-  const result = await runWebhookStream({
+  const session = new WebhookStreamSession({
     apiUrl: streamApiUrl(),
     webhookId: webhook.webhook_id,
     token: webhook.webhook_token,
     // Never the bare consultation id: that is the transcription flow's session,
     // and sharing it leaks live transcript fragments into the chat.
-    sessionKey: `chatbot:${p.consultationId}`,
-    text: p.message,
-    input: {
-      context: {
-        template_context: p.note?.trim() || 'Sin nota clínica todavía.',
-        transcript: p.transcript?.trim() || 'No transcription captured yet.',
-        language: p.language ?? 'es',
-      },
-    },
-    timeoutMs: TURN_TIMEOUT_MS,
+    sessionKey: chatSessionKey(p.consultationId),
+    // A turn is one exchange. Reconnecting would re-run it.
+    autoReconnect: false,
   })
 
-  return { reply: replyFrom(result.output), status: result.status }
+  const used: string[] = []
+  const unsubscribe = serveClientTools(session, tools, (name, ok) => {
+    if (ok) used.push(name)
+  })
+
+  let reply = ''
+  let status: AssistantTurn['status'] = 'unknown'
+
+  try {
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(deadline)
+        resolve()
+      }
+      const deadline = setTimeout(done, TURN_TIMEOUT_MS)
+
+      session.on('flow.completed', ({ output }) => {
+        reply = replyFrom(output)
+        status = 'completed'
+        done()
+      })
+      session.on('flow.failed', () => {
+        status = 'failed'
+        done()
+      })
+      session.on('error', () => {
+        status = 'failed'
+        done()
+      })
+      session.on('closed', done)
+
+      session.connect()
+      session.send(
+        { kind: 'text', text: p.message },
+        {
+          context: {
+            template_context: p.workingDoc?.trim() || 'Sin nota clínica todavía.',
+            transcript: p.transcript?.trim() || 'No transcription captured yet.',
+            language: p.language ?? 'es',
+          },
+          // The note tools. The flow's `ai_agent` node merges these with the
+          // ones it declares statically, so nothing published changes.
+          ...(tools.length ? { client_tools: clientToolSpecs(tools) } : {}),
+        },
+      )
+    })
+  } finally {
+    unsubscribe()
+    session.close()
+  }
+
+  return { reply, status, tools_used: used }
+}
+
+/**
+ * The assistant's session key — `chatbot:<id>`, never the bare consultation id.
+ *
+ * Exported because three things have to agree on it: the turn this API fires,
+ * the ledger read that bills it, and the browser tailing it live. Daguito routes
+ * stream events by session key, so a mismatch is not an error — it is the live
+ * transcript appearing inside the chat bubble.
+ */
+export const chatSessionKey = (consultationId: string): string => `chatbot:${consultationId}`
+
+/**
+ * What the assistant's turn cost, from Daguito's ledger.
+ *
+ * Same reason as the pre-recorded run: the `cost` events are streamed to
+ * whoever is consuming the flow, and for a turn this API runs one-shot that is
+ * nobody. The ledger is the authority. Best-effort by nature — an unbilled turn
+ * is an accounting gap, never a reason to lose the doctor's answer.
+ */
+export async function assistantTurnCost(consultationId: string): Promise<number> {
+  try {
+    const webhook = await resolveFlowWebhook(CHATBOT_FLOW)
+    const cost = await fetchSessionCost(webhook, chatSessionKey(consultationId))
+    return cost?.total_usd ?? 0
+  } catch {
+    return 0
+  }
 }

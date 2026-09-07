@@ -57,6 +57,37 @@ monta con `.use(<modulo>Module)` en `src/index.ts`. **Cada handler empieza por
 `requireOrg` y cada query filtra por `orgId`.** Las tablas van en
 `migrations/0002_*.sql` en adelante (idempotentes).
 
+La pantalla de consulta es un **dock**, no una grilla fija (`lib/panel-layout.ts`
++ `components/consultation/Dock.tsx`). El legacy usa flexlayout-react con casi
+todo en su default — solo apaga cerrar y renombrar (`tabEnableClose: false`,
+`tabEnableRename: false`) — así que lo que deja PRENDIDO es lo que importa:
+`tabEnableDrag`. Ahí el médico no intercambia paneles enteros, **arrastra una
+pestaña de un grupo a otro**. Son cinco pestañas (reunión, asistente,
+transcripción, recomendaciones, nota) en cuatro grupos; un grupo puede tenerlas
+todas y uno que se queda sin ninguna desaparece y le cede el espacio al vecino.
+Los tres bordes redimensionan, en PORCENTAJES y no en píxeles (el panel va
+embebido con el ancho que le dé la página del host), con mínimo de 15 % — el asa
+para reabrir un panel es el borde que desaparecería. Se guarda en `localStorage`,
+por navegador: es una preferencia sobre una pantalla, no vale una columna y una
+migración. Sin librería: es un arreglo de arreglos y tres números, y cada regla
+es una función pura testeada (`tests/panel-layout.test.ts`).
+
+El panel tiene dos secciones en el menú: **Consultas** y **Plantillas** (la
+estructura de la nota, con `[[huecos]]`). `home` sigue existiendo y sigue
+montando, pero está fuera de `SECTIONS` — es la página de ejemplo de la
+plantilla y no tiene nada todavía; volver a ponerla es una línea. Una página sin
+pestaña ensancha el union en `entry.tsx` (`NavSectionId | 'home'`), que es el
+patrón que ese archivo documenta.
+
+**Hoy el panel solo ofrece VIDEO al crear** (`OFFERED_MODES` en
+`lib/consultations.ts`). Es una decisión del cliente, no un límite: los otros dos
+modos están hechos y andan de punta a punta, la API sigue aceptando los tres, el
+CHECK de la columna sigue permitiendo los tres, y una consulta ya creada en otro
+modo abre y funciona igual. Volver a prender uno es agregarlo a ESE arreglo y
+nada más — sacarlos de la API habría convertido eso en una migración. Con un solo
+modo ofrecido el selector del formulario y la barra de pestañas desaparecen
+solos: una pregunta con una sola respuesta y un filtro con una sola opción.
+
 Una sección del panel son tres ediciones: una línea en `SECTIONS`
 (`src/manifest.ts`), un módulo en `src/pages/`, y su entrada en `PAGES`
 (`src/entry.tsx`) — el tipo unión hace que falte una sea error de build. La copy
@@ -167,21 +198,82 @@ Daguito (una migración que la inserta apuntando a esta url).
 La IA de la consulta NO vive en este repo. Son **flows de Daguito**, los mismos
 que publica el producto legacy (midulabs) y en **la misma cuenta**:
 
-| modo | flow (slug) |
-| --- | --- |
-| `video` | `realtime-consultation` |
-| `in_person` | `in-person-consultation` |
-| `transcription` | `pre-recorded-consultation` |
+| modo | flow (slug) | cómo entra el audio |
+| --- | --- | --- |
+| `video` | `realtime-consultation` | mic del navegador → `<session>:doctor` (+ `:patient`) |
+| `in_person` | `in-person-consultation` | mic del navegador → `<session>:doctor`, con diarización |
+| `transcription` | `pre-recorded-consultation` | **archivo subido**, corrido por la API |
+
+**`transcription` NO se transmite.** Su grafo tiene un solo nodo `s_stt_file`
+que lee `audio_url` / `audio_base64` — no hay `a_transcribe_stream`, así que
+mandarle micrófono abre un socket que nadie escucha y graba una hora de nada.
+`flowForMode('transcription')` devuelve `null` a propósito y `/stream/token`
+contesta 409. La subida va a `POST /api/consultations/:id/audio` (R2 privado,
+whitelist de MIME, 200 MB) y `src/lib/prerecorded.ts` corre el flow del lado
+servidor — desprendido, igual que el `PrerecordedTranscriptionService` del
+legacy: el médico sube y cierra la pestaña. Un fallo queda en
+`consultations.transcription_error` y el estado vuelve a `initial`, no se queda
+en `processing` para siempre; `POST …/audio/retry` reintenta sin volver a subir.
 
 `POST /api/consultations/:id/stream/token` (`src/lib/daguito-stream.ts`) hace lo
 mismo que el backend Go del legacy: resuelve el webhook del flow por slug
 (`GET /api/sdk/flows?slug=…` con `DAGUITO_STREAM_API_KEY`), abre la sesión
-(`POST /v1/webhooks/:id/stream/open`) y acuña un token corto de rol `bidi`
-(`POST /v1/webhooks/:id/stream-tokens`). **La llave nunca sale de la API**: el
-panel recibe un token para UNA sesión.
+(`POST /v1/webhooks/:id/stream/open`) y acuña un token de rol `bidi` con TTL de
+**6 horas** (el `streamTokenTTLSeconds` del legacy: el token tiene que sobrevivir
+a la consulta; a una hora se vencía a mitad de una primera visita y la
+transcripción se cortaba sin error en ninguna parte). **La llave nunca sale de la
+API**: el panel recibe un token para UNA sesión.
+
+**El `base_input` lo arma la API, no el navegador** (`src/consultations/flow-input.ts`):
+`language`, `doctor_name` (del claim `name` del token), `patient_name`,
+`template_body` y `model`. `template_body` es el que importa: es el markdown de
+la plantilla, con `[[descripción]]` en cada hueco, y `c_soap` rellena ESE
+documento — el resto del texto vuelve tal cual. Sin él la plantilla es una
+etiqueta y el motor escribe su SOAP genérico. Se edita en la sección
+**Plantillas** del panel; el schema que Daguito infiere de los `[[…]]` se cachea
+en `consultation_templates.schema` (es una llamada a un LLM).
 
 El `session_key` es el id de la consulta, así que un segundo médico que abra la
 misma pantalla entra a la misma sesión en vez de arrancar otra transcripción.
+
+**La sala es un Jitsi propio, no el público.** `JITSI_DOMAIN=meet.midulabs.com`
+— el mismo servidor del legacy, y anónimo: el `.env` de midulabs no tiene NINGUNA
+variable `JITSI_`, así que entra sin token, y nuestro `lib/jitsi.ts` hace lo
+mismo cuando no hay `JITSI_APP_ID`/`SECRET`. Por eso el nombre de sala es
+aleatorio (migración 0004) y no se deriva del id de la consulta: en un servidor
+abierto, el nombre ES la llave.
+
+Dejarlo vacío cae a `meet.jit.si`, y ahí la consulta **no abre**: el público solo
+reconoce como moderador a una cuenta de 8x8, así que mete al médico en la sala de
+espera con "The conference has not yet started because no moderators have yet
+arrived" y nunca arranca. No existe `VITE_JITSI_DOMAIN`: el panel recibe dominio
+y token de la API en runtime (el bundle corre dentro de la página de Daguito y no
+se puede rebuildear para apuntar a otro Jitsi).
+
+**El paciente tiene su propio canal, y su propia página.** `realtime-consultation`
+transcribe DOS canales: `s_stt_doctor` en `<session>:doctor` y `s_stt_patient` en
+`<session>:patient`. El navegador del médico alimenta el primero; el segundo lo
+alimenta el navegador del PACIENTE — si nadie lo hace, ese nodo no falla, se
+muere de hambre sus 30 s de timeout y el merge retiene también la transcripción
+del médico. `POST /api/consultations/:id/patient-link` (solo video) acuña un JWT
+HS256 y devuelve `…/patient.html#c=<id>&t=<token>` — el token va en el FRAGMENTO,
+que no se manda al servidor ni viaja en `Referer`.
+
+`GET /public/consultations/:id/patient/session` es la ÚNICA ruta además del
+webhook que no pasa por `authorize()`: quien llama es un papá con un link, sin
+cuenta de Daguito. Lo que el link compra es exactamente dos cosas — la sala como
+NO moderador, y un token de stream de rol **`produce`**: empuja audio y no puede
+leer el canal, donde viajan las recomendaciones y la nota. (El legacy acuña
+`bidi` para su paciente porque su paciente es un usuario logueado del producto;
+el nuestro no lo es.) Va con `open: false`: el flow ya lo abrió el médico.
+
+El secreto de firma vive en `app_meta`, no en SSM: no significa nada fuera de
+esta base, todas las tareas leen el mismo (un link sobrevive a un deploy
+rodante) y así la función anda en un entorno nuevo sin una variable más que
+alguien olvide poner. La página (`apps/panel/public/patient.html`) se sirve
+DESDE EL BUCKET DEL PANEL, al lado de `panel.js`, así que el `import('./panel.js')`
+es del mismo origen y no necesita CORS; la API agrega sola el origen del panel a
+su allow-list (`PANEL_BASE_URL` mueve las dos cosas a la vez).
 
 **El audio va al sub-canal del doctor.** El grafo declara
 `audio_session_suffix: "doctor"`, así que el nodo STT escucha en
@@ -190,12 +282,30 @@ peor modo posible: el socket abre, el medidor de nivel se mueve, el flow dice
 `ready` y no llega ni una palabra. Medido: 30 s de voz, cero eventos.
 
 La salida se lee con `OutputStream` (`src/lib/useConsultationStream.ts`): el nodo
-`c_facts` emite recomendaciones y `c_soap` la nota, con el mismo
-`collect_data.streaming_update` que el legacy — por eso `lib/flow-transform.ts`
-es un port fiel de su `services/daguito/transform.ts`. Todo lo que llega se
+`c_facts` emite recomendaciones y CUALQUIER otro nodo `collect_data` la nota
+(así lo despacha el legacy, para que un flow que renombre `c_soap` siga
+llenándola). `node.token` son los parciales en vivo: se muestran en gris y NO se
+guardan — un parcial se reescribe mientras el hablante sigue hablando. Los
+eventos `cost` solo los ve la pestaña que consume el flow, así que se acumulan
+ahí y se mandan a `POST …/costs` al detener; si no, el total se evapora al
+cerrar, que es lo que le pasa al legacy. `lib/flow-transform.ts` es un port fiel
+de su `services/daguito/transform.ts`, incluido `resolveSpeaker`: un canal de
+diarización (`A`/`B`) NO es un rol y no se adivina — se guarda como `speaker_a`,
+y solo `UNKNOWN` en presencial se atribuye al médico. Todo lo que llega se
 persiste por NUESTRAS rutas (`/transcript`, `/recommendations`, `/note` con
 `source: 'engine'`), así que el registro queda en la DB del custom y no en un
 websocket que terminó.
+
+El micrófono pasa por un **mezclador** (`AudioContext` → `GainNode` →
+`MediaStreamDestination`) antes del `MicStream`, como en el legacy: es lo que
+hace funcionar el mute (`track.enabled` no viaja por un grafo de Web Audio) y
+`getUserMedia` va con `echoCancellation` / `noiseSuppression` / `autoGainControl`.
+El VAD está **encendido**: en silencio el segmento STT pausa y la corrida alcanza
+su deadline y cierra en vez de colgarse en `running` — el medidor de nivel del
+header es lo que hace visible el caso en que el umbral no se cruza nunca.
+El modo NUNCA se adivina: si la consulta todavía no cargó, no se arranca —
+mandar una presencial por el flow de video deja el nodo `:patient` ocioso y el
+merge retiene la transcripción del médico los 30 s del timeout.
 
 **El asistente del chat es otro flow de la misma cuenta**: `consultation-chatbot`
 (el "Dr. Midulabs" del legacy). `POST /api/consultations/:id/chat` guarda el

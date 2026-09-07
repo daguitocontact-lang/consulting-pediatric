@@ -9,6 +9,24 @@
 import type { Key, Translator } from './i18n'
 
 export type ConsultationMode = 'video' | 'in_person' | 'transcription'
+
+/**
+ * The modes the panel OFFERS when creating a consultation.
+ *
+ * Video only, for now — the client's decision, not a limitation. The other two
+ * are built and working end to end (a presencial streams one diarized channel;
+ * a transcripción uploads a recording the API transcribes server-side), and
+ * nothing about them was removed: the API still accepts all three, the column's
+ * CHECK still allows all three, and a consultation already created in another
+ * mode still opens and still works.
+ *
+ * So turning one back on is adding it to THIS array and nothing else. Ripping
+ * the modes out of the API instead would have made that a migration.
+ */
+export const OFFERED_MODES: readonly ConsultationMode[] = ['video']
+
+/** What a new consultation is, when the form does not ask. */
+export const DEFAULT_MODE: ConsultationMode = OFFERED_MODES[0] ?? 'video'
 export type ConsultationStatus = 'draft' | 'initial' | 'recording' | 'processing' | 'finished'
 
 export type Consultation = {
@@ -21,6 +39,25 @@ export type Consultation = {
   status: ConsultationStatus
   template_id: string | null
   template_title: string | null
+  /** A model pinned to this consultation, or null for the flow's own. */
+  llm_model: string | null
+  /**
+   * The uploaded recording of a `transcription` consultation. The KEY, not a
+   * URL — the bucket is private and the panel fetches the bytes with the token
+   * (see AudioPanel). Null means nothing has been uploaded yet.
+   */
+  audio_key: string | null
+  audio_mime: string | null
+  audio_bytes: number | null
+  /** Why the last pre-recorded run failed, in the flow's own words. */
+  transcription_error: string | null
+  /** What Daguito charged, in the legacy's four buckets. Strings: Postgres
+   *  `numeric` does not survive a round trip through a JS number. */
+  streaming_cost_usd: string
+  facts_cost_usd: string
+  template_cost_usd: string
+  chatbot_cost_usd: string
+  total_cost_usd: string
   duration_seconds: number
   notes: string | null
   patient_consent_at: string | null

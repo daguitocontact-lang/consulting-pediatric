@@ -5,6 +5,7 @@ import { runMigrations } from './lib/migrate'
 import { syncContactFields } from './daguito'
 import { requireOrg } from './lib/guard'
 import { toolSpecs, invokeTool } from './agent/functions'
+import { PANEL_ORIGIN } from './lib/panel-origin'
 import { consultationsModule } from './consultations'
 import { webhooksModule } from './webhooks'
 
@@ -16,9 +17,18 @@ const PORT = Number(process.env.PORT ?? 8080)
 // at once (the Daguito web on localhost, its *-<user>.daguito.com tunnel, and
 // the panel's own tunnel when it is opened standalone).
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'https://app.daguito.com'
-const allowedOrigins = ALLOWED_ORIGIN.split(',')
+
+// The patient's page is OURS — published by our own deploy to our own bucket —
+// and it is the only client of /public/consultations/:id/patient/*. So its
+// origin is allowed automatically rather than left to ALLOWED_ORIGIN: forgetting
+// to list it breaks the patient's microphone with a CORS error in a console
+// nobody on a phone will ever open, on a page that otherwise looks fine. It is
+// resolved in ONE place (lib/panel-origin.ts) with the link the doctor copies,
+// so the two can never point at different hosts.
+const allowedOrigins = [...ALLOWED_ORIGIN.split(','), PANEL_ORIGIN]
   .map((o) => o.trim())
   .filter(Boolean)
+  .filter((origin, index, all) => all.indexOf(origin) === index)
 
 // Apply pending migrations on boot (idempotent, advisory-locked). Best-effort:
 // /health stays up even if the DB is briefly unreachable, so ECS keeps the task.
@@ -111,7 +121,11 @@ const app = new Elysia()
       const args = (body as Record<string, unknown>) ?? {}
       return {
         ok: true,
-        result: await invokeTool(params.name, args, { orgId: guard.orgId, userId: guard.userId }),
+        result: await invokeTool(params.name, args, {
+          orgId: guard.orgId,
+          userId: guard.userId,
+          userName: guard.userName,
+        }),
       }
     } catch (err) {
       set.status = 400

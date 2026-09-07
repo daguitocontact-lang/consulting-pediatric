@@ -7,16 +7,7 @@
  * column for rows the API had not backfilled.
  */
 import { describe, expect, test } from 'bun:test'
-import {
-  capitalizeWords,
-  displayName,
-  formatDuration,
-  hasWorkInFlight,
-  rowActions,
-  shortDateTime,
-  statusTone,
-  type Consultation,
-} from '../src/lib/consultations'
+import { DEFAULT_MODE, MODE_KEY, OFFERED_MODES, capitalizeWords, displayName, formatDuration, hasWorkInFlight, rowActions, shortDateTime, statusTone, type Consultation } from '../src/lib/consultations'
 import { translator } from '../src/lib/i18n'
 
 const i18n = translator('es')
@@ -31,9 +22,22 @@ const consultation = (patch: Partial<Consultation> = {}): Consultation => ({
   status: 'initial',
   template_id: null,
   template_title: null,
+  llm_model: null,
+  audio_key: null,
+  audio_mime: null,
+  audio_bytes: null,
+  transcription_error: null,
+  streaming_cost_usd: '0.000000',
+  facts_cost_usd: '0.000000',
+  template_cost_usd: '0.000000',
+  chatbot_cost_usd: '0.000000',
+  total_cost_usd: '0.000000',
   duration_seconds: 0,
   notes: null,
   patient_consent_at: null,
+  room_name: 'room-c1',
+  meeting_started_at: null,
+  meeting_ended_at: null,
   created_at: '2026-02-10T15:04:00Z',
   updated_at: '2026-02-10T15:04:00Z',
   ...patch,
@@ -136,5 +140,23 @@ describe('rowActions', () => {
     expect(rowActions('recording').join).toBe(true)
     expect(rowActions('processing').join).toBe(true)
     expect(rowActions('finished').join).toBe(false)
+  })
+})
+
+describe('which modes the panel offers', () => {
+  test('the default is a mode that is actually offered', () => {
+    // The invariant that breaks silently: trim OFFERED_MODES and the create
+    // form stops asking, but still submits whatever DEFAULT_MODE says — a
+    // consultation in a mode the panel no longer shows.
+    expect(OFFERED_MODES).toContain(DEFAULT_MODE)
+    expect(OFFERED_MODES.length).toBeGreaterThan(0)
+  })
+
+  test('a consultation in a mode no longer offered still renders', () => {
+    // Hiding an option must never hide data. The listing labels every mode the
+    // column allows, not just the ones the create form shows.
+    for (const mode of ['video', 'in_person', 'transcription'] as const) {
+      expect(MODE_KEY[mode]).toBeTruthy()
+    }
   })
 })

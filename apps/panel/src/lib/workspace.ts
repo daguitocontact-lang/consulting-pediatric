@@ -96,21 +96,71 @@ export function canStartRecording(p: {
   mode: string
 }): boolean {
   if (p.status === 'finished') return false
+  // A `transcription` consultation has no microphone to start: it is an upload,
+  // transcribed by the API after the fact. Offering "iniciar consulta" there
+  // opened a socket onto a flow with no streaming node — the recording button
+  // that recorded nothing.
+  if (p.mode === 'transcription') return false
   return p.mode === 'video' ? p.inMeeting : true
 }
 
 /**
  * Whether the room opens by itself when the screen does.
  *
- * TEMPORARY: every kind opens it, while the transcription is being worked on —
- * the room is the quickest way to confirm the microphone and the audio path are
- * alive. The rule this replaces (and should come back) is that only a video
- * consultation opens the room, because a presencial is two people in one office
- * and does not need a camera opened for them.
+ * ONLY a video consultation, which is the legacy's rule: there the patient is
+ * on the other side of a call and the call IS the consultation. A presencial is
+ * two people in one office — it gets the microphone panel instead, with the
+ * room behind a button — and a transcripción is a file with no call at all.
+ *
+ * Opening it for everything (which this did while the engine was being wired)
+ * has a cost beyond the noise: joining stamps `meeting_started_at`, so a
+ * consultation that never had a call reads as one that did, and the header's
+ * clock counts the open room.
  *
  * Starting a consultation does NOT depend on this: canStartRecording already
- * lets a presencial or a transcripción begin with no room at all.
+ * lets a presencial begin with no room at all.
  */
-export function autoJoinsMeeting(_mode: string): boolean {
-  return true
+export function autoJoinsMeeting(mode: string): boolean {
+  return mode === 'video'
+}
+
+/**
+ * What goes where the room goes.
+ *
+ * The legacy's `BodyDockView` factory for its `meeting` slot, as a rule instead
+ * of a nested ternary in the screen — it is three decisions and each one is a
+ * bug that has happened:
+ *
+ *   * `ended` — a FINISHED consultation shows no room. Re-opening the call to
+ *     read a closed consultation puts the doctor in an empty room AND stamps a
+ *     meeting that never happened onto it.
+ *   * `upload` — a `transcription` has no room and no microphone; its input is
+ *     a file.
+ *   * `mic` — a presencial is two people and one microphone. What can go wrong
+ *     there is the microphone, so that is what the panel shows.
+ *   * `room` — only a video consultation is a call.
+ */
+export type MeetingSlot = 'ended' | 'upload' | 'room' | 'mic'
+
+export function meetingSlot(consultation: { status: string; mode: string }): MeetingSlot {
+  // The MODE is asked first, and only for the one that never has a room. A
+  // finished `transcription` was showing "la reunión terminó" — a reunion it
+  // never had — and, worse, hid the recording behind that sentence: the audio
+  // is the record for that mode, and playing it back is exactly what a doctor
+  // opens a finished one to do.
+  if (consultation.mode === 'transcription') return 'upload'
+  if (consultation.status === 'finished') return 'ended'
+  return consultation.mode === 'video' ? 'room' : 'mic'
+}
+
+/**
+ * Whether pressing "iniciar" opens the microphone or asks for consent first.
+ *
+ * The legacy's `requestStartRecording` rule. Once is enough: a consultation
+ * that already carries `patient_consent_at` starts straight away, because a
+ * doctor who paused for lunch should not have to ask a parent twice — but a
+ * consultation with no stamp NEVER opens a microphone, whatever the mode.
+ */
+export function needsConsent(consultation: { patient_consent_at: string | null }): boolean {
+  return !consultation.patient_consent_at
 }

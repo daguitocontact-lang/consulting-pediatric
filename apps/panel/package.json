@@ -6,11 +6,12 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
     "test": "bun test"
   },
   "devDependencies": {
     "@tamagui/vite-plugin": "1.144.3",
+    "@types/bun": "^1.4.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.4",

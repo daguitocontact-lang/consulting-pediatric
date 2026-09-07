@@ -1,118 +1,68 @@
 /**
- * The chrome every panel of the consultation screen wears: a titled tab and a
- * fullscreen toggle, over a body that scrolls on its own.
+ * The empty state a panel shows when it has nothing yet.
  *
- * The legacy screen used flexlayout-react for this — a dock with draggable
- * splitters, saved to a cookie. That is a dependency and a saved layout to
- * migrate for a panel that is embedded in somebody else's page and gets, at
- * most, half a screen. The two things the doctor actually used are here: the
- * tabs (a panel can hold more than one view) and "make this one big", which is
- * what the maximise icon in the corner did.
+ * The panel CHROME — the tab strip, the maximise button — used to live here
+ * too. It moved to `Dock.tsx` when the tabs became draggable between groups:
+ * a strip that is also a drag source and a drop target cannot be a component
+ * that knows nothing about the layout around it.
  */
-import { useState, type ReactNode } from 'react'
-import { Maximize2, Minimize2 } from '@tamagui/lucide-icons'
-import { Text, XStack, YStack } from 'tamagui'
+import type { ReactNode } from 'react'
+import { Text, YStack } from 'tamagui'
 
-export type PanelTab = { key: string; label: string; content: ReactNode }
-
-export function Panel({
-  tabs,
-  aside,
-  expanded,
-  onToggleExpand,
-  minHeight = 220,
+/**
+ * The empty state a panel shows when it has nothing yet.
+ *
+ * A dashed ring, a title and one line saying what will fill it. The dashed ring
+ * is the point: an empty panel that looks finished reads as broken, and one
+ * that says what is coming reads as waiting.
+ */
+export function PanelEmpty({
+  icon,
+  label,
+  hint,
 }: {
-  tabs: PanelTab[]
-  /** Drawn in the tab strip, before the maximise button. */
-  aside?: ReactNode
-  /** Null when the surface cannot expand (a phone, where everything stacks). */
-  expanded?: boolean
-  onToggleExpand?: () => void
-  minHeight?: number
+  icon?: ReactNode
+  label: string
+  /** What will put something here. */
+  hint?: string
 }) {
-  const [active, setActive] = useState(tabs[0]?.key ?? '')
-  const current = tabs.find((tab) => tab.key === active) ?? tabs[0]
-
   return (
     <YStack
       flex={1}
-      minHeight={minHeight}
-      borderRadius="$4"
-      overflow="hidden"
-      borderWidth={1}
-      borderColor="$borderColor"
-      backgroundColor="$background"
+      alignItems="center"
+      justifyContent="center"
+      gap="$1.25"
+      paddingHorizontal="$3"
+      paddingVertical="$4"
     >
-      <XStack
-        alignItems="center"
-        gap="$0.5"
-        paddingHorizontal="$1"
-        paddingTop="$0.5"
-        backgroundColor="$color3"
-      >
-        {tabs.map((tab) => {
-          const selected = tab.key === current?.key
-          return (
-            <XStack
-              key={tab.key}
-              role="button"
-              tabIndex={0}
-              onPress={() => setActive(tab.key)}
-              paddingHorizontal="$1"
-              paddingVertical="$0.5"
-              borderTopLeftRadius="$3"
-              borderTopRightRadius="$3"
-              backgroundColor={selected ? '$background' : 'transparent'}
-              hoverStyle={{ backgroundColor: selected ? '$background' : '$color4' }}
-              cursor="pointer"
-            >
-              <Text
-                fontSize={13}
-                fontWeight={selected ? '700' : '500'}
-                color={selected ? '$color' : '$color11'}
-              >
-                {tab.label}
-              </Text>
-            </XStack>
-          )
-        })}
-        <XStack flex={1} />
-        {aside}
-        {onToggleExpand ? (
-          <XStack
-            role="button"
-            tabIndex={0}
-            aria-label="expand"
-            onPress={onToggleExpand}
-            padding="$0.5"
-            borderRadius="$2"
-            hoverStyle={{ backgroundColor: '$color4' }}
-            cursor="pointer"
-          >
-            {expanded ? (
-              <Minimize2 size={14} color="$color11" />
-            ) : (
-              <Maximize2 size={14} color="$color11" />
-            )}
-          </XStack>
-        ) : null}
-      </XStack>
-      <YStack flex={1} overflow="hidden">
-        {current?.content}
-      </YStack>
-    </YStack>
-  )
-}
-
-/** What a panel shows when it has nothing yet — the legacy screen's four
- *  "No hay … disponibles" states, in one shape. */
-export function PanelEmpty({ icon, label }: { icon?: ReactNode; label: string }) {
-  return (
-    <YStack flex={1} alignItems="center" justifyContent="center" gap="$0.75" padding="$2">
-      {icon}
-      <Text fontSize={13} color="$color11" textAlign="center">
+      {icon ? (
+        <YStack
+          width={52}
+          height={52}
+          borderRadius={26}
+          borderWidth={1.5}
+          borderColor="$borderColor"
+          borderStyle="dashed"
+          alignItems="center"
+          justifyContent="center"
+        >
+          {icon}
+        </YStack>
+      ) : null}
+      <Text fontSize={14.5} fontWeight="600" color="$color" textAlign="center">
         {label}
       </Text>
+      {hint ? (
+        <Text
+          fontSize={13}
+          color="$color10"
+          textAlign="center"
+          maxWidth={260}
+          lineHeight={19}
+        >
+          {hint}
+        </Text>
+      ) : null}
     </YStack>
   )
 }

@@ -18,8 +18,12 @@ import { Elysia, t } from 'elysia'
 import { requireOrg } from '../../lib/guard'
 import { safeError } from '../../lib/errors'
 import { getConsultation } from '../repos/consultations-repo'
-import { isStreamConfigured, streamCredentials } from '../../lib/daguito-stream'
-import { askAssistant, isAssistantConfigured } from '../../lib/daguito-chat'
+import { isLiveMode, isStreamConfigured, streamCredentials } from '../../lib/daguito-stream'
+import { consultationBaseInput } from '../flow-input'
+import { addCosts } from '../repos/consultations-repo'
+import { askAssistant, assistantTurnCost, isAssistantConfigured } from '../../lib/daguito-chat'
+import { getTemplate } from '../repos/templates-repo'
+import { noteTools } from '../note-tools'
 import { getNote, listTranscript } from '../repos/workspace-repo'
 import {
   addChatMessage,
@@ -194,7 +198,8 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
         set.status = guard.status
         return { error: guard.error }
       }
-      if (!(await getConsultation(guard.orgId, params.id))) {
+      const consultation = await getConsultation(guard.orgId, params.id)
+      if (!consultation) {
         set.status = 404
         return { error: 'not found' }
       }
@@ -215,21 +220,47 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
       try {
         // The assistant reads what the consultation has so far: the note it may
         // be asked about, and the transcript of what was actually said.
-        const [note, transcript] = await Promise.all([
+        const [note, transcript, template] = await Promise.all([
           getNote(guard.orgId, params.id),
           listTranscript(guard.orgId, params.id),
+          consultation.template_id ? getTemplate(guard.orgId, consultation.template_id) : null,
         ])
+        // The WORKING DOCUMENT, the legacy's `workingDoc`: the note if one has
+        // been written, otherwise the template's authored body with its
+        // `[[placeholders]]` still in it. Seeding from the template is what
+        // lets the assistant know the note's fields BEFORE any transcription
+        // has produced one — without it, it reads an empty rendered note and
+        // tells the doctor there is no template when there is.
+        const workingDoc = note?.body?.trim() || template?.body?.trim() || null
+
         const turn = await askAssistant({
           consultationId: params.id,
           message: body.body,
-          note: note?.body ?? null,
+          workingDoc,
           transcript: transcript.map((segment) => segment.text).join('\n') || null,
+          // The consultation's language, not a hardcoded 'es': it is a column
+          // and the flow interpolates it into the prompt.
+          language: consultation.language,
+          // What makes it an assistant rather than a chat beside the note: it
+          // can read the note's fields and write one. Scoped to THIS
+          // consultation for the length of this turn.
+          tools: noteTools({ orgId: guard.orgId, consultationId: params.id }),
         })
         if (!turn.reply) {
           // A flow that ran and said nothing is not an assistant message: a
           // blank bubble in a clinical thread is worse than an honest silence.
           return { message, assistant: null, assistant_available: true }
         }
+        // What Daguito charged for the turn, from its ledger — the `cost`
+        // events go to whoever consumes the flow, and for a turn this API runs
+        // one-shot that is nobody. Best-effort: an unbilled turn is an
+        // accounting gap, never a reason to lose the doctor's answer.
+        void assistantTurnCost(params.id)
+          .then((usd) =>
+            usd ? addCosts({ orgId: guard.orgId, id: params.id, chatbot: usd, chatbotCount: 1 }) : null,
+          )
+          .catch(() => {})
+
         return {
           message,
           assistant: await addChatMessage({
@@ -239,6 +270,8 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
             body: turn.reply,
           }),
           assistant_available: true,
+          /** Which note tools ran, so the screen knows to re-read the note. */
+          tools_used: turn.tools_used,
         }
       } catch (err) {
         // The doctor's message is already saved, which is the part that must
@@ -287,15 +320,26 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
       set.status = 503
       return { error: 'stream_not_configured' }
     }
+    if (!isLiveMode(consultation.mode)) {
+      // `transcription` is an upload, not a microphone: its flow has no
+      // streaming STT node to listen. Handing out a credential anyway is what
+      // made that mode look like it was recording and transcribe nothing.
+      set.status = 409
+      return { error: 'mode_not_live', detail: 'this consultation transcribes an upload' }
+    }
     try {
       return {
         stream: await streamCredentials({
           mode: consultation.mode,
           sessionKey: consultation.id,
-          baseInput: {
-            patient_name: consultation.patient_name ?? undefined,
-            consultation_id: consultation.id,
-          },
+          // Server-authoritative, and the whole reason this round trip exists:
+          // the template the note is written into and the model that writes it
+          // are not the browser's to choose. See flow-input.ts.
+          baseInput: await consultationBaseInput({
+            orgId: guard.orgId,
+            consultation,
+            doctorName: guard.userName,
+          }),
         }),
       }
     } catch (err) {
@@ -305,3 +349,51 @@ export const workspaceRoutes = new Elysia({ prefix: '/api/consultations/:id' })
       return { error: 'stream_unavailable', detail: err instanceof Error ? err.message : 'failed' }
     }
   })
+
+  /**
+   * What the engine charged for this consultation, added to the row.
+   *
+   * Daguito bills per step and emits a `cost` event per charge, straight to the
+   * browser that is consuming the flow — so the panel is the only thing that
+   * sees them, exactly as in the legacy app, where the Header showed a live
+   * total that never survived the consultation closing. It sends its
+   * accumulator here so it does.
+   *
+   * Added, never set (see addCosts): a consultation recorded in three stretches
+   * bills three times, and the panel only knows about its own stretch.
+   */
+  .post(
+    '/costs',
+    async ({ request, params, body, set }) => {
+      const guard = await requireOrg(request)
+      if (!guard.ok) {
+        set.status = guard.status
+        return { error: guard.error }
+      }
+      if (!(await getConsultation(guard.orgId, params.id))) {
+        set.status = 404
+        return { error: 'not found' }
+      }
+      await addCosts({
+        orgId: guard.orgId,
+        id: params.id,
+        streaming: body.streaming_usd,
+        streamingCount: body.streaming_count,
+        facts: body.facts_usd,
+        factsCount: body.facts_count,
+        template: body.template_usd,
+        templateCount: body.template_count,
+      })
+      return { ok: true }
+    },
+    {
+      body: t.Object({
+        streaming_usd: t.Optional(t.Number({ minimum: 0 })),
+        streaming_count: t.Optional(t.Number({ minimum: 0 })),
+        facts_usd: t.Optional(t.Number({ minimum: 0 })),
+        facts_count: t.Optional(t.Number({ minimum: 0 })),
+        template_usd: t.Optional(t.Number({ minimum: 0 })),
+        template_count: t.Optional(t.Number({ minimum: 0 })),
+      }),
+    },
+  )

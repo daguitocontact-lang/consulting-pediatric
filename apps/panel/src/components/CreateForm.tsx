@@ -210,7 +210,19 @@ export function CreateForm({
                   orgId={orgId ?? ''}
                   i18n={i18n}
                   value={values[field.name] ?? ''}
-                  onChange={(id) => setValues({ ...values, [field.name]: id })}
+                  // The picked contact's NAME travels beside its id, under
+                  // `<field>_label`. A form that only reports the uuid forces
+                  // every caller that needs a readable name to ask for it in a
+                  // second field — and a dialog with "Paciente" and "Nombre del
+                  // paciente" one beside the other is two questions for one
+                  // answer. Callers that do not want it simply ignore the key.
+                  onChange={(id, contact) =>
+                    setValues({
+                      ...values,
+                      [field.name]: id,
+                      [`${field.name}_label`]: contact?.label ?? '',
+                    })
+                  }
                 />
               ) : field.type === 'combo' ? (
                 // A picker with a way out: the list covers what a property normally

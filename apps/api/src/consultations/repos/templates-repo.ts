@@ -13,11 +13,30 @@ import type { TemplateScope } from '../../lib/constants'
 export type TemplateRow = {
   id: string
   title: string
+  /**
+   * The markdown the note is rendered from — what the legacy app calls the
+   * template body, and what reaches the flow as `template_body` in the
+   * base_input so `c_soap` fills THIS structure instead of its own default.
+   *
+   * Empty is legal and means "no structure of ours": the flow then writes the
+   * SOAP note it knows. A title alone never steered anything.
+   */
+  body: string
   scope: TemplateScope
   owner_id: string | null
   active: boolean
   created_at: string
 }
+
+/**
+ * The schema Daguito infers from a template body's `[[placeholders]]`, cached.
+ *
+ * The pre-recorded flow needs it as `template_schema`; inferring it is an LLM
+ * call, so it is paid for once per body. `hash` is the preview's own
+ * `bodyHash` — a template whose body was edited no longer matches and the next
+ * run re-infers.
+ */
+export type TemplateSchemaCache = { schema: Record<string, unknown>; hash: string } | null
 
 /**
  * The templates this user may pick: the org's, plus their own.
@@ -31,7 +50,7 @@ export async function listTemplates(p: {
   includeInactive?: boolean
 }): Promise<TemplateRow[]> {
   return sql<TemplateRow[]>`
-    SELECT id, title, scope, owner_id, active, created_at
+    SELECT id, title, body, scope, owner_id, active, created_at
       FROM consultation_templates
      WHERE org_id = ${p.orgId}
        AND (scope = 'org' OR owner_id = ${p.userId}::uuid)
@@ -44,16 +63,63 @@ export async function createTemplate(p: {
   orgId: string
   userId: string
   title: string
+  body?: string
   scope?: TemplateScope
 }): Promise<TemplateRow> {
   const scope = p.scope ?? 'org'
   const [row] = await sql<TemplateRow[]>`
-    INSERT INTO consultation_templates (org_id, title, scope, owner_id)
-    VALUES (${p.orgId}, ${p.title.trim()}, ${scope},
+    INSERT INTO consultation_templates (org_id, title, body, scope, owner_id)
+    VALUES (${p.orgId}, ${p.title.trim()}, ${p.body ?? ''}, ${scope},
             ${scope === 'personal' ? sql`${p.userId}::uuid` : sql`NULL`})
-    RETURNING id, title, scope, owner_id, active, created_at
+    RETURNING id, title, body, scope, owner_id, active, created_at
   `
   return row!
+}
+
+/**
+ * Rewrite a template's title and/or body.
+ *
+ * The body is the part that matters to the engine, and it is edited far more
+ * often than the title: a doctor tunes the structure of their note between
+ * consultations. Scoped like every other write — the org's templates, plus
+ * this doctor's own.
+ */
+export async function updateTemplate(p: {
+  orgId: string
+  userId: string
+  id: string
+  title?: string
+  body?: string
+}): Promise<TemplateRow | null> {
+  const columns: Record<string, unknown> = {}
+  if (p.title !== undefined) columns.title = p.title.trim()
+  if (p.body !== undefined) columns.body = p.body
+  if (!Object.keys(columns).length) return getTemplate(p.orgId, p.id)
+
+  const [row] = await sql<TemplateRow[]>`
+    UPDATE consultation_templates
+       SET ${sql(columns)}, updated_at = now()
+     WHERE org_id = ${p.orgId} AND id = ${p.id}::uuid
+       AND (scope = 'org' OR owner_id = ${p.userId}::uuid)
+     RETURNING id, title, body, scope, owner_id, active, created_at
+  `
+  return row ?? null
+}
+
+/**
+ * One template, by id, without the ownership filter.
+ *
+ * Used by the engine path: a consultation already points at this template, and
+ * the doctor running it is not necessarily the doctor who wrote it. The org
+ * check is still there — it is the only boundary that matters.
+ */
+export async function getTemplate(orgId: string, id: string): Promise<TemplateRow | null> {
+  const [row] = await sql<TemplateRow[]>`
+    SELECT id, title, body, scope, owner_id, active, created_at
+      FROM consultation_templates
+     WHERE org_id = ${orgId} AND id = ${id}::uuid
+  `
+  return row ?? null
 }
 
 /**
@@ -91,4 +157,33 @@ export async function deleteTemplate(p: {
      RETURNING id
   `
   return rows.length ? 'deleted' : 'not_found'
+}
+
+/** The cached schema for a template, or null when there is none yet. */
+export async function getTemplateSchema(
+  orgId: string,
+  id: string,
+): Promise<TemplateSchemaCache> {
+  const [row] = await sql<{ schema: Record<string, unknown> | null; schema_hash: string | null }[]>`
+    SELECT schema, schema_hash FROM consultation_templates
+     WHERE org_id = ${orgId} AND id = ${id}::uuid
+  `
+  if (!row?.schema || !row.schema_hash) return null
+  return { schema: row.schema, hash: row.schema_hash }
+}
+
+/** Store one. Best-effort by nature: a cache that fails to write costs another
+ *  inference, never a transcription. */
+export async function saveTemplateSchema(p: {
+  orgId: string
+  id: string
+  schema: Record<string, unknown>
+  hash: string
+}): Promise<void> {
+  await sql`
+    UPDATE consultation_templates
+       SET schema = ${sql.json(p.schema as Parameters<typeof sql.json>[0])},
+           schema_hash = ${p.hash}, updated_at = now()
+     WHERE org_id = ${p.orgId} AND id = ${p.id}::uuid
+  `
 }

@@ -57,7 +57,20 @@ function publicKeys() {
   return keysPromise
 }
 
-export type PanelClaims = { orgId: string; userId: string }
+export type PanelClaims = {
+  orgId: string
+  userId: string
+  /**
+   * The doctor's display name, when Daguito puts one in the token.
+   *
+   * Optional and never required: the tenant boundary is `org_id` and the
+   * identity is `sub`; this is a label. The engine wants it — the legacy
+   * backend sends `doctor_name` in the flow's base_input, and the prompts
+   * address the clinician by name — so it is read when present and simply
+   * omitted when it is not.
+   */
+  userName: string | null
+}
 
 /**
  * Verify a token minted by Daguito. Checks signature (RS256), audience, and
@@ -85,7 +98,11 @@ export async function verifyDaguitoToken(token: string | undefined): Promise<Pan
   const orgId = typeof claims.org_id === 'string' ? claims.org_id : null
   const userId = typeof claims.sub === 'string' ? claims.sub : null
   if (!orgId || !userId) throw new Error('invalid claims')
-  return { orgId, userId }
+  // Daguito has called it both things across its own surfaces; neither is
+  // required, so read either and fall through to null.
+  const nameClaim = claims.name ?? claims.user_name
+  const userName = typeof nameClaim === 'string' && nameClaim.trim() ? nameClaim.trim() : null
+  return { orgId, userId, userName }
 }
 
 /** An auth failure that carries the status the caller should return. */

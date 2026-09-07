@@ -41,6 +41,42 @@ const BY_EXTENSION: Record<string, DocumentMime> = {
   pdf: 'application/pdf',
 }
 
+/**
+ * What a `transcription` consultation may upload.
+ *
+ * The legacy backend's whitelist, which exists for a reason a size limit does
+ * not cover: the transcriber is handed the file by URL and decides what to do
+ * with it, so the set of things we are willing to point it at is ours to close.
+ * `audio/mp4` and `audio/x-m4a` are both what a phone recording arrives as
+ * depending on the browser; `audio/webm` is what a browser recorder produces.
+ */
+export const AUDIO_MIME = [
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/webm',
+  'audio/ogg',
+  'audio/flac',
+] as const
+
+export type AudioMime = (typeof AUDIO_MIME)[number]
+
+const AUDIO_EXTENSION: Record<AudioMime, string> = {
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/flac': 'flac',
+}
+
+export const isAudioMime = (mime: string): mime is AudioMime =>
+  (AUDIO_MIME as readonly string[]).includes(mime)
+
 const account = process.env.R2_ACCOUNT_ID ?? ''
 const bucket = process.env.R2_BUCKET ?? ''
 const accessKeyId = process.env.R2_ACCESS_KEY_ID ?? ''
@@ -128,6 +164,37 @@ export async function deleteObject(key: string): Promise<void> {
   } catch (err) {
     console.error('[storage] delete failed (continuing):', key, err)
   }
+}
+
+/**
+ * A link Daguito can fetch the object with, valid for `seconds`.
+ *
+ * The pre-recorded flow does not receive bytes — it receives an `audio_url` and
+ * downloads it itself, so a private bucket has to hand out a signed link or the
+ * transcriber gets a 403. Short-lived and single-object: it is a door to ONE
+ * recording, open for one run.
+ *
+ * Null on the filesystem driver (dev): there is nothing on the public internet
+ * to sign. The caller falls back to sending the audio inline as base64, which
+ * the same flow node accepts (`audio_base64_field`) and which is fine for the
+ * one recording a developer tests with.
+ */
+export function presignGet(key: string, seconds = 3600): string | null {
+  safeKey(key)
+  if (!r2) return null
+  return r2.presign(key, { method: 'GET', expiresIn: seconds })
+}
+
+/** Where a consultation's uploaded recording goes. Same shape as every other
+ *  key here: org first, so a listing of the bucket is a listing per tenant. */
+export function consultationAudioKey(p: {
+  orgId: string
+  consultationId: string
+  mime: AudioMime
+}): string {
+  const org = p.orgId.replace(/[^A-Za-z0-9_-]/g, '_')
+  const name = `${crypto.randomUUID()}.${AUDIO_EXTENSION[p.mime]}`
+  return safeKey(`${org}/consultations/${p.consultationId}/audio/${name}`)
 }
 
 /** Where a traveler's scan goes. The random part is what keeps a replaced photo

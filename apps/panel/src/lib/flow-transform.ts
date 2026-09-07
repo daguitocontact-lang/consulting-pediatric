@@ -126,16 +126,17 @@ export type FlowTranscriptSegment = { speaker: string | null; text: string; at_s
  * taken: a partial is rewritten as the speaker keeps talking, and storing it
  * would leave half-sentences in the record.
  */
-export function transcriptFromEvent(data: Record<string, unknown>): FlowTranscriptSegment[] {
+export function transcriptFromEvent(
+  data: Record<string, unknown>,
+  mode: FlowMode = 'video',
+): FlowTranscriptSegment[] {
   const asSegment = (item: Record<string, unknown>): FlowTranscriptSegment | null => {
     // `transcript.final` carries the words under `text`; some nodes use
     // `transcript`. Both are the same sentence.
     const raw = typeof item.text === 'string' ? item.text : item.transcript
     const text = typeof raw === 'string' ? raw.trim() : ''
     if (!text) return null
-    const speakerRaw = item.speaker ?? item.speaker_label ?? item.role
-    const speaker = typeof speakerRaw === 'string' ? normalizeSpeaker(speakerRaw) : null
-    return { speaker, text, at_seconds: secondsFrom(item) }
+    return { speaker: resolveSpeaker(item, mode), text, at_seconds: secondsFrom(item) }
   }
 
   // A partial is not the record.
@@ -172,16 +173,51 @@ function secondsFrom(item: Record<string, unknown>): number {
 }
 
 /**
- * The flow labels speakers as it can: a diarization channel ("A"/"B"), a role,
- * or a name. The panel only distinguishes the two that matter.
+ * Which consultation this transcript belongs to — it changes how a speaker
+ * label is read, and nothing else here.
  */
-function normalizeSpeaker(raw: string): string | null {
-  const value = raw.trim().toLowerCase()
-  // Diarization has not decided yet: AssemblyAI labels the first finals
-  // `PENDING` and settles them later. Showing that as the speaker put the word
-  // "PENDING" above the first sentence of every consultation.
-  if (!value || value === 'pending' || value === 'unknown') return null
-  if (value.includes('doctor') || value.includes('medico') || value === 'a') return 'doctor'
-  if (value.includes('pacient') || value.includes('patient') || value === 'b') return 'patient'
-  return raw.trim()
+export type FlowMode = 'video' | 'in_person' | 'transcription'
+
+/**
+ * Who said it.
+ *
+ * A faithful port of the legacy app's `resolveSpeaker`, including the part that
+ * looks like an oversight and is not:
+ *
+ *   * `video` runs TWO transcribe nodes, each with a `speaker_role` the flow
+ *     stamps on its own events — the label arrives already decided, in Spanish
+ *     or English, and only has to be folded.
+ *   * `in_person` runs ONE node with diarization, so what arrives is a channel
+ *     ("A", "B", "PENDING"), which is NOT a role. Guessing that A is the doctor
+ *     is a coin flip that puts the parent's words in the doctor's mouth in the
+ *     clinical record. The legacy keeps the channel as `speaker_a` — an honest
+ *     label the panel can show and a human can correct — and only maps
+ *     `UNKNOWN` to the doctor, because an unattributed line in an office is the
+ *     person holding the microphone.
+ *
+ * The earlier version of this mapped `a` → doctor and `b` → patient. That is
+ * the bug the legacy comment is about.
+ */
+export function resolveSpeaker(
+  item: Record<string, unknown>,
+  mode: FlowMode = 'video',
+): string | null {
+  const roleRaw = (String(item.speaker ?? '') || String(item.role ?? '')).trim()
+  const role = roleRaw.toLowerCase()
+  if (role === 'doctor' || role === 'médico' || role === 'medico') return 'doctor'
+  if (role === 'patient' || role === 'paciente') return 'patient'
+
+  const label = String(item.speaker_label ?? '').trim()
+  if (mode === 'in_person' && label) {
+    // AssemblyAI labels the first finals `PENDING`/`UNKNOWN` and settles them
+    // later; showing that word above the first sentence of every consultation
+    // is what it did before.
+    return label.toUpperCase() === 'UNKNOWN' || label.toUpperCase() === 'PENDING'
+      ? 'doctor'
+      : `speaker_${label.toLowerCase()}`
+  }
+  // Anything else is a label somebody chose — an interpreter, a nurse, a second
+  // parent. It is kept as written (the legacy lowercases it, which only ever
+  // made the panel render "enfermera"), because the panel shows it verbatim.
+  return roleRaw || null
 }

@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+  The page a parent opens from the link the doctor sends.
+
+  It lives NEXT TO panel.js in the same bucket on purpose: the import below is
+  then same-origin, so it needs none of the CORS the bucket grants Daguito, and
+  there is one bundle to build and deploy for both audiences.
+
+  The credential is in the URL FRAGMENT (`#c=<id>&t=<token>`), never the query.
+  A fragment is not sent to the server, never reaches an access log, and does
+  not travel in the Referer header when the page loads Jitsi's script from
+  another origin.
+
+  The API base is not hardcoded: this file is static and the same bytes serve
+  dev and prod, so it derives the API host from its own (panel → api), and an
+  explicit `&api=` in the link wins for a developer on a tunnel.
+-->
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Consulta</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0d10;
+      }
+      #root {
+        height: 100%;
+      }
+      .boot {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 24px;
+        color: #e8eaed;
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div class="boot">Abriendo la consulta…</div></div>
+    <script type="module">
+      const params = new URLSearchParams(location.hash.slice(1))
+      const consultationId = params.get('c')
+      const token = params.get('t')
+      const root = document.getElementById('root')
+
+      const fail = (message) => {
+        root.innerHTML = ''
+        const p = document.createElement('div')
+        p.className = 'boot'
+        p.textContent = message
+        root.appendChild(p)
+      }
+
+      if (!consultationId || !token) {
+        fail('El enlace está incompleto. Pídele al consultorio que te lo envíe de nuevo.')
+      } else {
+        // panel-host → api-host. The two always differ by that one label
+        // (pediatric-panel.daguito.com / pediatric-api.daguito.com, and
+        // pediatric-panel-<user> / pediatric-api-<user> on a dev tunnel), so the
+        // page needs no build-time configuration to find its API.
+        const apiBase =
+          params.get('api') ||
+          `${location.protocol}//${location.host.replace(/^pediatric-panel/, 'pediatric-api')}`
+
+        try {
+          // React Refresh preamble — DEV ONLY, and the reason this block exists.
+          //
+          // `@vitejs/plugin-react` injects it into every HTML the dev server
+          // TRANSFORMS. This file is static (it lives in `public/`, so the same
+          // bytes serve dev and the R2 bucket), so it is never transformed and
+          // never gets one — and the React runtime inside the bundle then throws
+          // "@vitejs/plugin-react can't detect preamble" the moment it is
+          // imported. The page shows its own error and nothing else happens,
+          // which reads exactly like a broken link.
+          //
+          // In prod `/@react-refresh` does not exist, the import rejects, and
+          // this is skipped: dev-only scaffolding that fails closed.
+          try {
+            const refresh = await import('/@react-refresh')
+            refresh.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+          } catch {
+            /* built bundle: there is no refresh runtime, and none is needed */
+          }
+
+          // Same origin as this file — see the note at the top.
+          const mod = await import('./panel.js')
+          root.innerHTML = ''
+          mod.mountPatient(root, {
+            apiBase,
+            consultationId,
+            token,
+            locale: navigator.language,
+          })
+        } catch (err) {
+          console.error('[patient] failed to load the panel bundle', err)
+          fail('No se pudo abrir la consulta. Revisa tu conexión e intenta de nuevo.')
+        }
+      }
+    </script>
+  </body>
+</html>

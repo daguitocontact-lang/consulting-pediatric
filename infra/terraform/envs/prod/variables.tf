@@ -107,8 +107,8 @@ variable "github_repo_ids" {
 
 variable "jitsi_domain" {
   type        = string
-  default     = ""
-  description = "Jitsi server that hosts the consultation rooms, e.g. \"meet.pediatric.example\". Empty = the public meet.jit.si, which is fine for a pilot and not for patient data."
+  default     = "meet.midulabs.com"
+  description = "Jitsi server that hosts the consultation rooms. Defaults to the same self-hosted instance the legacy product uses. Do NOT leave it empty: the fallback is the public meet.jit.si, which now holds every joiner in a guest lobby (\"the conference has not yet started because no moderators have yet arrived\") because it only recognises 8x8 accounts as moderators — so the doctor cannot start their own room. It is also not a place for patient data."
 }
 
 variable "jitsi_app_id" {

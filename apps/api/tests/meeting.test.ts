@@ -328,13 +328,25 @@ describe('the transcription engine', () => {
     expect(response.status).toBe(404)
   })
 
-  test('each mode runs its own flow', async () => {
-    const { flowForMode } = await import('../src/lib/daguito-stream')
+  test('only the live modes have a streaming flow', async () => {
+    const { flowForMode, isLiveMode } = await import('../src/lib/daguito-stream')
 
     expect(flowForMode('video')).toBe('realtime-consultation')
     expect(flowForMode('in_person')).toBe('in-person-consultation')
-    expect(flowForMode('transcription')).toBe('pre-recorded-consultation')
-    // An unknown mode most resembles a single room mic with diarization.
-    expect(flowForMode('telepathy')).toBe('in-person-consultation')
+
+    // `transcription` is NOT a streaming mode, and this is the assertion the
+    // earlier version of this test got backwards. Its flow,
+    // `pre-recorded-consultation`, has one `s_stt_file` node that reads
+    // `audio_url` — there is no `a_transcribe_stream` in that graph, so a
+    // browser pushing a microphone at it opens a socket nothing listens on and
+    // records an hour of silence. That mode is an upload, run by the API
+    // (lib/prerecorded.ts), exactly as the legacy backend runs it.
+    expect(flowForMode('transcription')).toBeNull()
+    expect(isLiveMode('transcription')).toBe(false)
+
+    // An unknown mode is not quietly routed to a flow either: guessing is what
+    // put in-person consultations through the two-channel video flow, whose
+    // idle `:patient` node withholds the transcript for its whole timeout.
+    expect(flowForMode('telepathy')).toBeNull()
   })
 })

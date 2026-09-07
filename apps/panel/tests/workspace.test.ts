@@ -3,7 +3,7 @@
  * clock shows, and when the doctor may start.
  */
 import { describe, expect, test } from 'bun:test'
-import { autoJoinsMeeting, canStartRecording, elapsedSeconds } from '../src/lib/workspace'
+import { autoJoinsMeeting, canStartRecording, elapsedSeconds, meetingSlot, needsConsent } from '../src/lib/workspace'
 
 const base = {
   duration_seconds: 0,
@@ -81,10 +81,13 @@ describe('canStartRecording', () => {
     expect(canStartRecording({ inMeeting: false, status: 'initial', mode: 'in_person' })).toBe(true)
   })
 
-  test('neither does a transcription — it is an upload', () => {
+  test('a transcription has nothing to start — it is an upload', () => {
+    // Its flow (`pre-recorded-consultation`) reads a file, not a socket. The
+    // button used to be offered and opened a stream onto a graph with no
+    // streaming STT node: an hour of "grabando" and an empty transcript.
     expect(
       canStartRecording({ inMeeting: false, status: 'initial', mode: 'transcription' }),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   test('a finished consultation is finished, room or no room', () => {
@@ -96,13 +99,71 @@ describe('canStartRecording', () => {
 })
 
 describe('autoJoinsMeeting', () => {
-  test('TEMPORARY: every kind opens the room while transcription is debugged', () => {
-    // The rule this replaces — and that should come back — is that only a video
-    // consultation opens it, because a presencial is two people in one office
-    // and does not need a camera opened for them. Starting a consultation does
-    // not depend on it either way: see canStartRecording.
+  test('ONLY a video consultation opens a call by itself', () => {
+    // The legacy's rule, and the reason it matters beyond the noise: joining
+    // stamps `meeting_started_at`, so a presencial that never had a call reads
+    // as one that did and the header's clock counts the open room. A presencial
+    // gets the microphone panel with the room behind a button; a transcripción
+    // has no call at all. Starting does not depend on this either way: see
+    // canStartRecording.
     expect(autoJoinsMeeting('video')).toBe(true)
-    expect(autoJoinsMeeting('in_person')).toBe(true)
-    expect(autoJoinsMeeting('transcription')).toBe(true)
+    expect(autoJoinsMeeting('in_person')).toBe(false)
+    expect(autoJoinsMeeting('transcription')).toBe(false)
+  })
+})
+
+describe('what goes where the room goes', () => {
+  test('a video consultation is a call', () => {
+    expect(meetingSlot({ status: 'recording', mode: 'video' })).toBe('room')
+    expect(meetingSlot({ status: 'initial', mode: 'video' })).toBe('room')
+  })
+
+  test('a presencial shows the microphone, not a camera', () => {
+    // Two people in one office. What can go wrong is the microphone, so that
+    // is what the panel shows — with the room still behind a button.
+    expect(meetingSlot({ status: 'recording', mode: 'in_person' })).toBe('mic')
+  })
+
+  test('a transcripción shows the upload, finished or not', () => {
+    // It never had a room, so "la reunión terminó" is a sentence about
+    // something that did not happen — and it hid the recording, which for this
+    // mode IS the record and is what a doctor opens a finished one to play.
+    expect(meetingSlot({ status: 'initial', mode: 'transcription' })).toBe('upload')
+    expect(meetingSlot({ status: 'processing', mode: 'transcription' })).toBe('upload')
+    expect(meetingSlot({ status: 'finished', mode: 'transcription' })).toBe('upload')
+  })
+
+  test('a FINISHED consultation shows no room, whatever its mode', () => {
+    // The one that bit: a finished video consultation re-opened the call. The
+    // doctor lands in an empty room, and joining stamps a meeting that never
+    // happened onto a consultation that was already closed.
+    expect(meetingSlot({ status: 'finished', mode: 'video' })).toBe('ended')
+    expect(meetingSlot({ status: 'finished', mode: 'in_person' })).toBe('ended')
+  })
+})
+
+describe('the consent gate', () => {
+  test('a consultation with no stamp never opens a microphone', () => {
+    expect(needsConsent({ patient_consent_at: null })).toBe(true)
+  })
+
+  test('once stamped, it starts straight away', () => {
+    // A doctor who paused for lunch should not have to ask a parent for
+    // permission twice.
+    expect(needsConsent({ patient_consent_at: '2026-09-07T10:00:00Z' })).toBe(false)
+  })
+})
+
+describe('a finished consultation', () => {
+  test('cannot be started, whatever the room says', () => {
+    // The screen no longer renders a disabled "Iniciar consulta" for it — a
+    // greyed-out button asks the doctor to work out why the obvious action is
+    // unavailable instead of saying the consultation is done.
+    for (const mode of ['video', 'in_person', 'transcription']) {
+      expect(canStartRecording({ inMeeting: true, status: 'finished', mode })).toBe(false)
+    }
+    // A transcripción keeps its uploader — see above.
+    expect(meetingSlot({ status: 'finished', mode: 'video' })).toBe('ended')
+    expect(meetingSlot({ status: 'finished', mode: 'in_person' })).toBe('ended')
   })
 })

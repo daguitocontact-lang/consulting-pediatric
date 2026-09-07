@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["tests", "scripts", "src/prompts/markdown.d.ts"]
+}

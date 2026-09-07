@@ -33,6 +33,8 @@ import { translator } from './lib/i18n'
 import { useHostTheme, type ThemeMode } from './lib/host-theme'
 import { Page as home } from './pages/home'
 import { Page as consultations } from './pages/consultations'
+import { Page as templates } from './pages/templates'
+import { PatientScreen, type PatientProps } from './patient'
 
 export type { PanelPage, MountProps }
 
@@ -47,10 +49,16 @@ export type { PanelPage, MountProps }
  * A page with no tab of its own (a deep link, a diagnostic) widens the type
  * instead: `NavSectionId | 'occupancy'`, and an entry in PAGES for it.
  */
-export type SectionId = NavSectionId
+/**
+ * `home` has no tab of its own — it is off the menu (see SECTIONS) — so the
+ * union is widened for it, which is the documented way above to keep a page
+ * mountable without listing it. It still answers if the host asks for it.
+ */
+export type SectionId = NavSectionId | 'home'
 
 const PAGES: Record<SectionId, (props: MountProps) => React.ReactElement> = {
   consultations,
+  templates,
   home,
 }
 
@@ -90,8 +98,18 @@ const mounted = new WeakMap<HTMLElement, Mounted>()
  * screen said "En creación", and the only way to tell was to read the source.
  * In dev it means the host is holding a module from before that page existed
  * (Vite hot-updates the panel, but Daguito imports the remote ONCE and keeps
- * the reference), and the cure is a hard reload of the host. Saying so beats
- * rendering a different page as if nothing happened.
+ * the reference). Saying so beats rendering a different page as if nothing
+ * happened.
+ *
+ * The cure is NOT a hard reload, which is what this used to advise and what
+ * sends people in circles for ten minutes. Cloudflare fronts both the dev
+ * tunnel and the prod bucket and rewrites our `Cache-Control` to the zone
+ * default (measured: `max-age=14400` on a response Vite sent as `no-store`), so
+ * the browser holds the old bundle for four hours — and `Cmd+Shift+R` only
+ * bypasses the cache for the NAVIGATION's own subresources, never for a module
+ * a script imports afterwards, which is exactly how the host loads this. The
+ * only thing that reliably reaches the browser is a NEW url, which is what the
+ * `?b=` on the org's `remote_url` is for.
  */
 function UnknownPage({ pageId }: { pageId: string }) {
   return (
@@ -100,8 +118,13 @@ function UnknownPage({ pageId }: { pageId: string }) {
         {`No conozco la página "${pageId}"`}
       </Text>
       <Text fontSize={13} color="$color11">
-        Este panel trae: {MOUNTABLE_PAGE_IDS.join(', ')}. Si la página existe pero no aparece aquí,
-        el host está usando una versión vieja del panel: recarga con Cmd+Shift+R.
+        Este panel trae: {MOUNTABLE_PAGE_IDS.join(', ')}.
+      </Text>
+      <Text fontSize={13} color="$color11">
+        Si la página existe pero no aparece aquí, el navegador está usando una copia vieja del
+        bundle: Cloudflare le puso 4 h de caché. Un recargado duro NO alcanza — el host importa el
+        panel desde JS. Súbele el <Text fontWeight="700">?b=</Text> al remote_url de la org en
+        Daguito (Ajustes → panel del custom) y recarga.
       </Text>
     </YStack>
   )
@@ -392,4 +415,24 @@ function dispose(record: Mounted): void {
     }
     record.container.remove()
   })
+}
+
+/**
+ * Mount the PATIENT's page — the other audience of this bundle.
+ *
+ * Called by `patient.html`, which sits next to `panel.js` in the same bucket so
+ * the import is same-origin and needs no CORS of its own. Deliberately not
+ * `mount`: it takes a link token instead of a Daguito panel token, it has no
+ * org and no page id, and it renders one screen with no Shell, no navigation
+ * and no Tamagui provider (see patient.tsx for why plain styles).
+ *
+ * Everything it is allowed to do is decided by the API from the link token —
+ * this function is a renderer, not a gate.
+ */
+export function mountPatient(el: HTMLElement, props: PatientProps): void {
+  const container = document.createElement('div')
+  container.className = 'pediatric-patient'
+  container.style.cssText = 'display:flex;flex-direction:column;min-height:100%'
+  el.appendChild(container)
+  createRoot(container).render(<PatientScreen {...props} />)
 }

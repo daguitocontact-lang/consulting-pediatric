@@ -113,20 +113,44 @@ describe('the transcript', () => {
   })
 
   test('reads a list of utterances with speakers and times', () => {
-    const segments = transcriptFromEvent({
-      utterances: [
-        // `start` is milliseconds — the unit AssemblyAI emits.
-        { speaker: 'A', text: 'Buenos días', start: 3_000 },
-        { speaker: 'B', text: 'Tiene fiebre', start: 11_400 },
-      ],
-    })
+    const segments = transcriptFromEvent(
+      {
+        utterances: [
+          // `start` is milliseconds — the unit AssemblyAI emits.
+          { speaker_label: 'A', text: 'Buenos días', start: 3_000 },
+          { speaker_label: 'B', text: 'Tiene fiebre', start: 11_400 },
+        ],
+      },
+      'in_person',
+    )
 
-    // Diarization labels its channels A/B; the panel only distinguishes the two
-    // that matter.
+    // A diarization CHANNEL is not a role, and the panel does not pretend it
+    // is. The earlier version of this mapped A→doctor and B→patient, which is a
+    // coin flip that puts the parent's words in the doctor's mouth in a
+    // clinical record. The legacy keeps the channel — an honest label a human
+    // can correct — and only the two flows that stamp a real `speaker_role`
+    // (video's `s_stt_doctor` / `s_stt_patient`) produce doctor/patient.
     expect(segments).toEqual([
-      { speaker: 'doctor', text: 'Buenos días', at_seconds: 3 },
-      { speaker: 'patient', text: 'Tiene fiebre', at_seconds: 11 },
+      { speaker: 'speaker_a', text: 'Buenos días', at_seconds: 3 },
+      { speaker: 'speaker_b', text: 'Tiene fiebre', at_seconds: 11 },
     ])
+  })
+
+  test('a stamped role IS the speaker, in either language', () => {
+    // What the video flow's two transcribe nodes emit: the role is decided by
+    // the graph, not guessed here.
+    expect(transcriptFromEvent({ text: 'hola', speaker: 'doctor' })[0]!.speaker).toBe('doctor')
+    expect(transcriptFromEvent({ text: 'hola', speaker: 'médico' })[0]!.speaker).toBe('doctor')
+    expect(transcriptFromEvent({ text: 'hola', speaker: 'paciente' })[0]!.speaker).toBe('patient')
+    expect(transcriptFromEvent({ text: 'hola', role: 'patient' })[0]!.speaker).toBe('patient')
+  })
+
+  test('an unsettled diarization channel is the doctor, in an office', () => {
+    // AssemblyAI labels the first finals UNKNOWN and settles them later. In a
+    // room with one microphone the unattributed line is the person holding it.
+    expect(
+      transcriptFromEvent({ text: 'hola', speaker_label: 'UNKNOWN' }, 'in_person')[0]!.speaker,
+    ).toBe('doctor')
   })
 
   test('the unit comes from the field name, not from the size of the number', () => {
