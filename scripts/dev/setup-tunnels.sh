@@ -39,10 +39,34 @@ if [[ ! -f "$HOME/.cloudflared/cert.pem" ]]; then
   exit 1
 fi
 
+# The ports come from infra/.env, not from the defaults.
+#
+# They used to be read from the shell alone (`${API_PORT:-4101}`), and a custom
+# that moved its ports so it could run beside another one — which is the whole
+# reason the ports are configurable — got tunnels pointed at the OTHER custom's
+# stack: real HTTPS hostnames serving somebody else's API, with no error
+# anywhere. Same fallback shape tunnel.sh uses for the dev slug.
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+env_file="$repo_root/infra/.env"
+read_env() {
+  local key="$1" fallback="$2" line=""
+  if [[ -f "$env_file" ]]; then
+    line="$(grep -E "^$key=" "$env_file" | tail -1 || true)"
+  fi
+  if [[ -z "$line" ]]; then
+    printf '%s' "$fallback"
+    return
+  fi
+  line="${line#*=}"
+  line="${line%%[[:space:]]*}"
+  line="${line%\"}"; line="${line#\"}"
+  printf '%s' "${line:-$fallback}"
+}
+
 # service:host-port — must match infra/.env (API_PORT / PANEL_PORT).
 SERVICES=(
-  "api:${API_PORT:-4101}"
-  "panel:${PANEL_PORT:-4102}"
+  "api:${API_PORT:-$(read_env API_PORT 4101)}"
+  "panel:${PANEL_PORT:-$(read_env PANEL_PORT 4102)}"
 )
 
 mkdir -p "$HOME/.cloudflared/configs"
