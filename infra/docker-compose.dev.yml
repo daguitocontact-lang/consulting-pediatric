@@ -71,6 +71,13 @@ services:
       - '${PANEL_PORT:-4102}:4102'
     volumes:
       - ../apps/panel:/app/apps/panel
+      # The dev harness signs its own token: scripts/dev-credentials.ts reads
+      # the org id from infra/.env and the throwaway RS256 key from
+      # infra/.dev-jwt/ (both gitignored). Without this mount the plugin
+      # answers "infra/.env no existe" and every page in the harness is a 401
+      # until somebody pastes a token by hand. Read-only: the panel has no
+      # business writing there.
+      - ../infra:/app/infra:ro
       # Anonymous volume so the container keeps its OWN node_modules instead of
       # the host's. Without it the bind mount shares node_modules/.vite — Vite's
       # dependency-optimizer cache — between the host (bun run build/dev) and the
