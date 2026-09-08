@@ -169,7 +169,10 @@ export function ConsultationScreen({
   const setStatus = useCallback(
     async (status: 'recording' | 'processing' | 'finished') => {
       await apiPatch(props, `/api/consultations/${consultationId}`, { status })
-      state.reload()
+      // `refresh`, never `reload`: this screen holds a Jitsi iframe and an open
+      // microphone, and a foreground load turns `loading` back on. See the
+      // guard below for what that used to do to them.
+      state.refresh()
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [consultationId, props],
@@ -212,15 +215,29 @@ export function ConsultationScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setStatus, stream.stop])
 
-  if (state.loading) {
-    return (
-      <YStack flex={1} alignItems="center" justifyContent="center" minHeight={280}>
-        <Spinner />
-      </YStack>
-    )
-  }
-
-  if (state.error || !workspace || !consultation) {
+  /**
+   * The spinner is for the FIRST paint, and only for it.
+   *
+   * `loading` goes true on every FOREGROUND load, and a spinner returned from
+   * here unmounts the whole screen — the Jitsi iframe with it. So pressing
+   * «iniciar», which reloaded the workspace after the PATCH, dropped the doctor
+   * out of the room and re-joined a new one: the room's own clock back at
+   * 00:00 while the consultation's kept counting, the panels rebuilt and the
+   * assistant scrolled back to the top. The same went for a single failed poll,
+   * which took the room down and showed a full-page error.
+   *
+   * Once there is a workspace on screen, nothing takes it away again: a reload
+   * keeps the last one until the next lands, and an error reports itself in
+   * place, next to the panels.
+   */
+  if (!workspace || !consultation) {
+    if (state.loading) {
+      return (
+        <YStack flex={1} alignItems="center" justifyContent="center" minHeight={280}>
+          <Spinner />
+        </YStack>
+      )
+    }
     return (
       <YStack flex={1} padding="$2" gap="$1">
         <Button size="sm" variant="ghost" iconBefore={<ArrowLeft size={15} />} onPress={onBack}>
@@ -274,7 +291,7 @@ export function ConsultationScreen({
           props={props}
           i18n={i18n}
           consultation={consultation}
-          onChanged={() => state.reload()}
+          onChanged={() => state.refresh()}
         />
       ) : showRoom ? (
         <JitsiFrame
@@ -617,6 +634,13 @@ export function ConsultationScreen({
           await startConsultation()
         }}
       />
+
+      {/* A refresh that failed while the consultation is on screen says so here
+          and changes nothing else — one timed-out poll is not a reason to take
+          down a room the doctor is in. It clears on the next good answer. */}
+      {state.error ? (
+        <ErrorNote>{t('workspace.error', { detail: errorMessage(state.error, i18n) })}</ErrorNote>
+      ) : null}
 
       {/* ── The panels ─────────────────────────────────────────────────
           The row is BOUNDED to the viewport, and that is what makes the
