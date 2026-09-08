@@ -72,7 +72,10 @@ export function listTranscript(
     SELECT id::text, speaker, text, at_seconds, created_at
       FROM consultation_transcript_segments
      WHERE org_id = ${orgId} AND consultation_id = ${consultationId}::uuid
-     ORDER BY at_seconds, id
+     -- Qualified for the same reason as listChat below: id is also the name of
+     -- the TEXT output column, and two segments heard in the same second would
+     -- otherwise be ordered as strings.
+     ORDER BY at_seconds, consultation_transcript_segments.id
   `
 }
 
@@ -231,12 +234,22 @@ export async function saveNote(p: {
 
 // ── Chat with the assistant ───────────────────────────────────────────
 
+/**
+ * The thread, oldest first.
+ *
+ * The column is qualified, and that is not style: `id` is also the name of the
+ * OUTPUT column, which this SELECT casts to text so the panel gets a string —
+ * and Postgres resolves a bare `ORDER BY id` to the output column before the
+ * table's. Sorting the text put "10" before "9", so the tenth message climbed
+ * above the ninth and the assistant's answer appeared over the question that
+ * asked it. Invisible until a thread reached ten messages, then wrong forever.
+ */
 export function listChat(orgId: string, consultationId: string): Promise<ChatMessage[]> {
   return sql<ChatMessage[]>`
     SELECT id::text, role, body, created_at
       FROM consultation_chat_messages
      WHERE org_id = ${orgId} AND consultation_id = ${consultationId}::uuid
-     ORDER BY id
+     ORDER BY consultation_chat_messages.id
   `
 }
 

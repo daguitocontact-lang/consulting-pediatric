@@ -132,7 +132,7 @@ describe('recommendations', () => {
     expect(cleared!.status).toBeNull()
   })
 
-  test('another org cannot triage this org\'s recommendation', async () => {
+  test("another org cannot triage this org's recommendation", async () => {
     const id = await seedConsultation({ name: 'rec' })
     const [only] = await addRecommendations({
       orgId: ORG,
@@ -164,7 +164,7 @@ describe('the clinical note', () => {
   test('the engine NEVER overwrites what the doctor wrote', async () => {
     const id = await seedConsultation({ name: 'note' })
     await saveNote({ orgId: ORG, consultationId: id, body: 'draft', source: 'engine' })
-    await saveNote({ orgId: ORG, consultationId: id, body: 'the doctor\'s words', source: 'doctor' })
+    await saveNote({ orgId: ORG, consultationId: id, body: "the doctor's words", source: 'doctor' })
 
     await saveNote({ orgId: ORG, consultationId: id, body: 're-rendered', source: 'engine' })
 
@@ -260,6 +260,22 @@ describe('the assistant thread', () => {
       'doctor:pregunta',
       'assistant:respuesta',
     ])
+  })
+
+  // Two messages could never show the bug this guards. The SELECT casts id to
+  // text so the panel gets a string, and a bare ORDER BY id resolves to that
+  // OUTPUT column: sorted as text, "10" lands above "9", so the tenth message
+  // climbed over the ninth and the answer appeared above the question that
+  // asked it. Eleven messages are the cheapest thing that fails.
+  test('stays in the order it was said past the tenth message', async () => {
+    const id = await seedConsultation({ name: 'chat largo' })
+    const said = Array.from({ length: 11 }, (_, index) => `mensaje ${index + 1}`)
+    for (const body of said) {
+      await addChatMessage({ orgId: ORG, consultationId: id, role: 'doctor', body })
+    }
+
+    const { chat } = await loadWorkspace(ORG, id)
+    expect(chat.map((message) => message.body)).toEqual(said)
   })
 
   test('the route writes as the DOCTOR unless it is told otherwise', async () => {
