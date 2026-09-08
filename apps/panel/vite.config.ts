@@ -34,6 +34,14 @@ const devPanelAlias: Plugin = {
             : setHeader(name, value)
         res.setHeader('Cache-Control', 'no-store')
       }
+      // The patient's page is linked as a ROUTE, not as a file: in prod the
+      // deploy publishes the same bytes under the extensionless key `consulta`
+      // (deploy-panel.yml). Vite serves `public/` by filename, so dev would be
+      // the only place where the link the API mints 404s — one rewrite keeps
+      // the two identical.
+      if (req.url && req.url.split('?')[0] === '/consulta') {
+        req.url = '/patient.html'
+      }
       // Match the PATH, not the whole URL: Daguito's remote_url may carry a
       // query (a cache-buster, a version pin), and `req.url === '/panel.js'`
       // would miss it and fall through to Vite's HTML fallback — the host then

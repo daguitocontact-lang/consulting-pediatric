@@ -28,8 +28,12 @@ import { Elysia } from 'elysia'
 import { requireOrg } from '../../lib/guard'
 import { meetingFor } from '../../lib/jitsi'
 import { isLiveMode, isStreamConfigured, streamCredentials } from '../../lib/daguito-stream'
-import { signPatientLink, verifyPatientLink } from '../../lib/patient-link'
-import { PANEL_ORIGIN } from '../../lib/panel-origin'
+import {
+  apiBaseFromRequest,
+  patientLinkUrl,
+  signPatientLink,
+  verifyPatientLink,
+} from '../../lib/patient-link'
 import { getConsultation } from '../repos/consultations-repo'
 
 export const patientRoutes = new Elysia()
@@ -63,10 +67,15 @@ export const patientRoutes = new Elysia()
       orgId: guard.orgId,
     })
     return {
-      // The token is in the FRAGMENT, not the query: a fragment is never sent
-      // to the server, never lands in an access log, and does not travel in a
-      // Referer header when the page loads Jitsi's script from another origin.
-      url: `${PANEL_ORIGIN}/patient.html#c=${consultation.id}&t=${token}`,
+      // Shape and reasoning in `patientLinkUrl`: the credential rides in the
+      // FRAGMENT, and where the page is served from is configuration
+      // (`PATIENT_BASE_URL`) because it can be Daguito's domain rather than
+      // ours.
+      url: patientLinkUrl({
+        consultationId: consultation.id,
+        token,
+        apiBase: apiBaseFromRequest(request),
+      }),
       expires_at: expiresAt,
     }
   })

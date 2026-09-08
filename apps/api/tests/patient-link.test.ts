@@ -7,7 +7,12 @@
  */
 import { describe, expect, test } from 'bun:test'
 import './setup'
-import { signPatientLink, verifyPatientLink } from '../src/lib/patient-link'
+import {
+  apiBaseFromRequest,
+  patientLinkUrl,
+  signPatientLink,
+  verifyPatientLink,
+} from '../src/lib/patient-link'
 
 const ORG = 'org_dev'
 const A = '11111111-1111-1111-1111-111111111111'
@@ -86,5 +91,99 @@ describe('the patient link', () => {
     // a forwarded link is not a standing door.
     expect(hours).toBeGreaterThan(1)
     expect(hours).toBeLessThanOrEqual(12)
+  })
+})
+
+/** The hosting shapes, as the config resolves them. */
+const OURS = {
+  url: 'https://pediatric-panel.daguito.com/consulta',
+  ours: true,
+  panelOrigin: 'https://pediatric-panel.daguito.com',
+}
+const DAGUITO = {
+  url: 'https://app.daguito.com/consulta',
+  ours: false,
+  panelOrigin: 'https://pediatric-panel.daguito.com',
+}
+/** Daguito's router, where the route itself carries the consultation. */
+const ROUTE = { ...DAGUITO, url: 'https://app.daguito.com/consulta/{id}' }
+
+describe('the url the doctor copies', () => {
+  const link = (page: typeof OURS) =>
+    patientLinkUrl(
+      { consultationId: A, token: 'tok.en.value', apiBase: 'https://pediatric-api.daguito.com' },
+      page,
+    )
+
+  test('the credential is in the fragment, never in the query or the path', async () => {
+    // A fragment is not sent to the server, does not reach an access log and
+    // does not travel in a Referer when the page loads Jitsi from another
+    // origin. That holds for the consultation id too: a visit is not a line in
+    // anybody's request log, Daguito's included.
+    for (const page of [OURS, DAGUITO]) {
+      const url = new URL(link(page))
+      expect(url.search).toBe('')
+      expect(url.pathname).not.toContain(A)
+      const fragment = new URLSearchParams(url.hash.slice(1))
+      expect(fragment.get('c')).toBe(A)
+      expect(fragment.get('t')).toBe('tok.en.value')
+    }
+  })
+
+  test('our own page is told nothing else: it is next to the bundle', () => {
+    const fragment = new URLSearchParams(new URL(link(OURS)).hash.slice(1))
+    expect([...fragment.keys()].sort()).toEqual(['c', 't'])
+    // A route, not a file: `.html` in a link a practice sends over WhatsApp
+    // reads like something that leaked out of a server.
+    expect(link(OURS).startsWith('https://pediatric-panel.daguito.com/consulta#')).toBe(true)
+    expect(link(OURS)).not.toContain('.html')
+  })
+
+  test('`{id}` becomes the path, for a router whose route is the consultation', () => {
+    // What a SPA route looks like — Daguito serves routes, not files.
+    expect(link(ROUTE).startsWith(`https://app.daguito.com/consulta/${A}#`)).toBe(true)
+    // And the id is still in the fragment, which is where the page reads it
+    // from whichever way it was served.
+    expect(new URLSearchParams(new URL(link(ROUTE)).hash.slice(1)).get('c')).toBe(A)
+  })
+
+  test("under Daguito's domain it carries the api and the bundle", () => {
+    // On app.daguito.com neither is derivable from the page's own hostname:
+    // the API host came from swapping one label, and `./panel.js` from sitting
+    // next to it. Without these the page calls Daguito for a session and
+    // imports a bundle that is not there.
+    const fragment = new URLSearchParams(new URL(link(DAGUITO)).hash.slice(1))
+    expect(fragment.get('api')).toBe('https://pediatric-api.daguito.com')
+    expect(fragment.get('panel')).toBe('https://pediatric-panel.daguito.com')
+  })
+})
+
+describe('the api base the link hands the page', () => {
+  const request = (headers: Record<string, string>) =>
+    new Request('https://ignored/api/consultations/x/patient-link', { headers })
+
+  test('is the host the doctor reached, which is the one the parent must call', () => {
+    // cloudflared passes the original Host through, so the panel calling
+    // `pediatric-api.daguito.com` is exactly the base the phone needs.
+    expect(apiBaseFromRequest(request({ host: 'pediatric-api.daguito.com' }))).toBe(
+      'https://pediatric-api.daguito.com',
+    )
+  })
+
+  test('keeps the scheme it was reached over, for the docker dev stack', () => {
+    expect(
+      apiBaseFromRequest(request({ host: 'localhost:4101', 'x-forwarded-proto': 'http' })),
+    ).toBe('http://localhost:4101')
+  })
+
+  test('API_BASE_URL wins, for a proxy that rewrites the host', () => {
+    process.env.API_BASE_URL = 'https://pediatric-api.daguito.com/'
+    try {
+      expect(apiBaseFromRequest(request({ host: 'internal.local' }))).toBe(
+        'https://pediatric-api.daguito.com',
+      )
+    } finally {
+      delete process.env.API_BASE_URL
+    }
   })
 })

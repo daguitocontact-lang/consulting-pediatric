@@ -256,8 +256,9 @@ transcribe DOS canales: `s_stt_doctor` en `<session>:doctor` y `s_stt_patient` e
 alimenta el navegador del PACIENTE — si nadie lo hace, ese nodo no falla, se
 muere de hambre sus 30 s de timeout y el merge retiene también la transcripción
 del médico. `POST /api/consultations/:id/patient-link` (solo video) acuña un JWT
-HS256 y devuelve `…/patient.html#c=<id>&t=<token>` — el token va en el FRAGMENTO,
-que no se manda al servidor ni viaja en `Referer`.
+HS256 y devuelve `…/consulta#c=<id>&t=<token>` — el token va en el FRAGMENTO,
+que no se manda al servidor ni viaja en `Referer`. Dónde vive esa página es
+configuración: ver `PATIENT_BASE_URL` abajo.
 
 `GET /public/consultations/:id/patient/session` es la ÚNICA ruta además del
 webhook que no pasa por `authorize()`: quien llama es un papá con un link, sin
@@ -270,10 +271,61 @@ el nuestro no lo es.) Va con `open: false`: el flow ya lo abrió el médico.
 El secreto de firma vive en `app_meta`, no en SSM: no significa nada fuera de
 esta base, todas las tareas leen el mismo (un link sobrevive a un deploy
 rodante) y así la función anda en un entorno nuevo sin una variable más que
-alguien olvide poner. La página (`apps/panel/public/patient.html`) se sirve
-DESDE EL BUCKET DEL PANEL, al lado de `panel.js`, así que el `import('./panel.js')`
-es del mismo origen y no necesita CORS; la API agrega sola el origen del panel a
-su allow-list (`PANEL_BASE_URL` mueve las dos cosas a la vez).
+alguien olvide poner. Por defecto la página (`apps/panel/public/patient.html`)
+se sirve DESDE EL BUCKET DEL PANEL, al lado de `panel.js`, así que el
+`import('./panel.js')` es del mismo origen y no necesita CORS; la API agrega
+sola el origen del panel a su allow-list (`PANEL_BASE_URL` mueve las dos cosas a
+la vez).
+
+**El link es a una RUTA, no a un archivo.** `deploy-panel.yml` sube los mismos
+bytes con DOS keys: `consulta` (sin extensión, con `Content-Type: text/html`) —
+que es a la que apunta la API — y `patient.html`, que se queda porque los links
+ya acuñados viven 12 h y porque es el path que sirve Vite desde `public/`. Un
+`.html` en un link que el consultorio manda por WhatsApp parece algo que se
+escapó de un servidor. En dev el `/consulta` lo reescribe el middleware de
+`vite.config.ts`, para que el link que acuña la API no sea lo único que cambia
+entre dev y prod. Al desplegar, el orden importa: primero `apps/panel/RELEASE`
+(publica `consulta`), después el de la API.
+
+**`PATIENT_BASE_URL` la saca de ahí y la pone bajo el dominio de Daguito.**
+Es la URL COMPLETA de la página como Daguito la expone (p. ej.
+`https://app.daguito.com/consulta`): el papá abre un link del producto y no un
+hostname de bucket que nunca vio. Al ponerla, el enlace pasa a ser
+`<PATIENT_BASE_URL>#c=<id>&t=<token>&api=…&panel=…` y ese origen entra solo en
+la allow-list de CORS — las dos cosas salen del mismo lugar
+(`src/lib/panel-origin.ts`), que es lo que impide que el link apunte a un host y
+el CORS permita otro.
+
+Puede llevar **`{id}`** si la ruta de Daguito ES la consulta
+(`https://app.daguito.com/consulta/{id}`), que es la forma que tiene una ruta de
+SPA. Ojo con el precio: ahí el id pasa por el path y queda en el log de acceso
+de Daguito, que es exactamente lo que el fragmento evita. Sin `{id}` el id viaja
+solo en el fragmento — la visita de un paciente no es una línea en el log de
+nadie — y la página lo lee de ahí en las dos formas.
+
+`api` y `panel` viajan en el fragmento porque en `app.daguito.com` la página ya
+no puede deducir ninguno de los dos de su propio hostname (`api` salía de
+cambiarle una etiqueta al host, y `./panel.js` de estar al lado del bundle). Son
+públicos, pero un valor en una URL lo edita quien la tiene, así que la página
+IGNORA cualquiera que no sea `https://…daguito.com` (o localhost, para el dev en
+docker) y cae al default: un link reenviado no se puede reescribir para mandar
+su token a otro servidor. `api` lo saca la API del `Host` del request que acuña
+el link — cloudflared pasa el original — y `API_BASE_URL` lo fuerza si algún
+proxy lo reescribe.
+
+**Lo que tiene que poner Daguito** (no está en este repo), en una de dos formas:
+
+1. **Proxy** de `…/consulta*` al bucket del panel (la key `consulta` y
+   `panel.js` por el mismo prefijo). Nuestra página corre bajo su dominio y el
+   import sigue siendo mismo-origen: no cambia nada de este lado.
+2. **Página propia** que importe nuestro bundle y llame a `mountPatient(el,
+   { apiBase, consultationId, token, locale })` — el mismo contrato que usa
+   `patient.html`, exportado desde `panel.js` (`src/entry.tsx`). El import es
+   cross-origin y el CORS del bucket ya permite exactamente `app.daguito.com`
+   (`modules/r2-panel`).
+
+En las dos, la ruta va SIN sesión de Daguito: quien la abre es un papá con un
+link, no un usuario logueado.
 
 **El audio va al sub-canal del doctor.** El grafo declara
 `audio_session_suffix: "doctor"`, así que el nodo STT escucha en

@@ -101,6 +101,12 @@ variable "daguito_web_origin" {
   description = "The only browser origin allowed to load the panel + call the API (CORS)."
 }
 
+variable "patient_base_url" {
+  type        = string
+  default     = ""
+  description = "Full url of the patient's page when Daguito serves it under its own domain (e.g. https://app.daguito.com/consulta, or .../consulta/{id} when their router's route is the consultation). Empty = <panel bucket>/consulta, published by this repo's own deploy. Setting it moves the link the doctor copies AND opens CORS for that origin, from one place (apps/api/src/lib/panel-origin.ts)."
+}
+
 variable "github_repo" {
   type        = string
   description = "GitHub owner/repo whose main branch may assume the CI deploy role (deploy-api.yml)."

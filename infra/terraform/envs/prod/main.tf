@@ -150,6 +150,11 @@ module "ecs" {
     # the CORS allow-list is opened for it. Same value the r2_panel module
     # publishes, so the two cannot drift apart.
     PANEL_BASE_URL = module.r2_panel.panel_url
+    # Where the PATIENT's page is served from, when that is not our bucket:
+    # a parent opens an app.daguito.com link rather than a bucket hostname.
+    # Empty falls back to <panel>/patient.html, which is what this repo
+    # deploys. Daguito has to serve (or proxy) the route this names.
+    PATIENT_BASE_URL = var.patient_base_url
     # The private documents bucket (src/lib/storage.ts). The credentials go in
     # as secrets below, but the driver only turns on when all FOUR are present:
     # without these two the API boots, logs "no R2_* configured" and writes the

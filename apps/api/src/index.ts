@@ -5,7 +5,7 @@ import { runMigrations } from './lib/migrate'
 import { syncContactFields } from './daguito'
 import { requireOrg } from './lib/guard'
 import { toolSpecs, invokeTool } from './agent/functions'
-import { PANEL_ORIGIN } from './lib/panel-origin'
+import { PANEL_ORIGIN, PATIENT_ORIGIN } from './lib/panel-origin'
 import { consultationsModule } from './consultations'
 import { webhooksModule } from './webhooks'
 
@@ -18,14 +18,15 @@ const PORT = Number(process.env.PORT ?? 8080)
 // the panel's own tunnel when it is opened standalone).
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'https://app.daguito.com'
 
-// The patient's page is OURS — published by our own deploy to our own bucket —
-// and it is the only client of /public/consultations/:id/patient/*. So its
-// origin is allowed automatically rather than left to ALLOWED_ORIGIN: forgetting
-// to list it breaks the patient's microphone with a CORS error in a console
-// nobody on a phone will ever open, on a page that otherwise looks fine. It is
-// resolved in ONE place (lib/panel-origin.ts) with the link the doctor copies,
-// so the two can never point at different hosts.
-const allowedOrigins = [...ALLOWED_ORIGIN.split(','), PANEL_ORIGIN]
+// The panel's bucket and the patient's page are allowed automatically rather
+// than left to ALLOWED_ORIGIN: forgetting to list either breaks the patient's
+// microphone with a CORS error in a console nobody on a phone will ever open,
+// on a page that otherwise looks fine. Both are resolved in ONE place
+// (lib/panel-origin.ts) together with the link the doctor copies, so the origin
+// that is allowed and the origin the link points at cannot drift apart — and
+// that stays true now that the page can be served under Daguito's own domain
+// (`PATIENT_BASE_URL`) instead of ours.
+const allowedOrigins = [...ALLOWED_ORIGIN.split(','), PANEL_ORIGIN, PATIENT_ORIGIN]
   .map((o) => o.trim())
   .filter(Boolean)
   .filter((origin, index, all) => all.indexOf(origin) === index)

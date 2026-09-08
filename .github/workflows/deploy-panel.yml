@@ -73,17 +73,32 @@ jobs:
       # The patient's page, next to the bundle it imports. Same origin, so the
       # `import('./panel.js')` inside it needs none of the CORS this bucket
       # grants Daguito. Same short TTL for the same reason: one url, no hash.
-      - name: Upload patient.html to R2
+      #
+      # TWO keys, the same bytes:
+      #   * `consulta` — extensionless, and what the API links to. A parent gets
+      #     a route, not a file; `.html` in a link a practice sends over
+      #     WhatsApp reads like something that leaked out of a server. R2 serves
+      #     an object by key, so the "route" is just a key with no extension and
+      #     the content type set here.
+      #   * `patient.html` — kept. Links already minted live 12 h, and it is the
+      #     path the Vite dev server serves from `public/`.
+      #
+      # Order matters across repos-worth of deploys: this workflow has to have
+      # published `consulta` BEFORE an API that links to it rolls out. Bump
+      # apps/panel/RELEASE first.
+      - name: Upload the patient page to R2
         working-directory: apps/panel
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          npx --yes wrangler@4 r2 object put "$BUCKET/patient.html" \
-            --file=dist/patient.html \
-            --content-type="text/html; charset=utf-8" \
-            --cache-control="public, max-age=60, must-revalidate" \
-            --remote
+          for key in consulta patient.html; do
+            npx --yes wrangler@4 r2 object put "$BUCKET/$key" \
+              --file=dist/patient.html \
+              --content-type="text/html; charset=utf-8" \
+              --cache-control="public, max-age=60, must-revalidate" \
+              --remote
+          done
 
       # Belt and braces on top of the 60s TTL: the edge drops its copy the
       # moment the new one is up. The zone id is looked up by name so this

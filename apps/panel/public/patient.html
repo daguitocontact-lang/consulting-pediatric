@@ -14,6 +14,15 @@
   The API base is not hardcoded: this file is static and the same bytes serve
   dev and prod, so it derives the API host from its own (panel → api), and an
   explicit `&api=` in the link wins for a developer on a tunnel.
+
+  It can also be served from somewhere that is NOT our bucket. A practice would
+  rather send a parent an `app.daguito.com/…` link than a bucket hostname, so
+  Daguito may serve or proxy this page under its own domain — that is what
+  `PATIENT_BASE_URL` on the API switches on. When it is set, the link carries
+  `&api=` and `&panel=` because neither can be derived from `app.daguito.com`,
+  and this page only honours values still under `daguito.com`. If Daguito
+  PROXIES the whole path to the bucket instead, `panel.js` comes along with it
+  and nothing here changes.
 -->
 <html lang="es">
   <head>
@@ -27,30 +36,60 @@
         margin: 0;
         height: 100%;
         background: #0b0d10;
+        /* The room is dark and so is the page: a phone that paints a white
+           form-control ground behind it flashes on every render. */
+        color-scheme: dark;
       }
       #root {
         height: 100%;
       }
       .boot {
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: 14px;
         height: 100%;
         padding: 24px;
         color: #e8eaed;
         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         text-align: center;
       }
+      /* The bundle's own spinner uses these keyframes too: the page it mounts
+         has no stylesheet of its own (see the note in patient.tsx). */
+      .boot-spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid #2a2f36;
+        border-top-color: #e8eaed;
+        border-radius: 50%;
+        animation: patient-spin 800ms linear infinite;
+      }
+      @keyframes patient-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-spinner,
+        [style*="patient-spin"] {
+          animation: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <div id="root"><div class="boot">Abriendo la consulta…</div></div>
+    <div id="root">
+      <div class="boot"><span class="boot-spinner"></span>Abriendo la consulta…</div>
+    </div>
     <script type="module">
       const params = new URLSearchParams(location.hash.slice(1))
       const consultationId = params.get('c')
       const token = params.get('t')
       const root = document.getElementById('root')
 
+      // No spinner here: these are the states that are not going to resolve on
+      // their own, and a spinner under them reads as "still trying".
       const fail = (message) => {
         root.innerHTML = ''
         const p = document.createElement('div')
@@ -59,16 +98,53 @@
         root.appendChild(p)
       }
 
+      /**
+       * A base handed to us in the link, and only if it is still ours.
+       *
+       * When Daguito serves this page under its own domain the link carries
+       * where the API and the bundle are (see `patientLinkUrl`), because on
+       * `app.daguito.com` neither can be derived from the page's own hostname
+       * any more. A value in a URL is a value the holder can edit, so anything
+       * that is not `https://…daguito.com` (or localhost, for docker dev) is
+       * ignored and the default below wins — a forwarded link cannot be
+       * rewritten to point this page's token at somebody else's server.
+       */
+      const trusted = (value) => {
+        if (!value) return null
+        try {
+          const url = new URL(value)
+          const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+          if (url.protocol !== 'https:' && !local) return null
+          if (!local && url.hostname !== 'daguito.com' && !url.hostname.endsWith('.daguito.com')) {
+            return null
+          }
+          return url.origin
+        } catch {
+          return null
+        }
+      }
+
       if (!consultationId || !token) {
         fail('El enlace está incompleto. Pídele al consultorio que te lo envíe de nuevo.')
       } else {
         // panel-host → api-host. The two always differ by that one label
         // (pediatric-panel.daguito.com / pediatric-api.daguito.com, and
-        // pediatric-panel-<user> / pediatric-api-<user> on a dev tunnel), so the
-        // page needs no build-time configuration to find its API.
-        const apiBase =
-          params.get('api') ||
-          `${location.protocol}//${location.host.replace(/^pediatric-panel/, 'pediatric-api')}`
+        // pediatric-panel-<user> / pediatric-api-<user> on a dev tunnel), so a
+        // page served from OUR bucket needs no configuration to find its API.
+        // Served from anywhere else that swap is a no-op and would hand back
+        // the host we are on — Daguito's — so prod is the fallback instead of a
+        // hostname that answers 404 to everything.
+        const derivedApi = /^pediatric-panel/.test(location.host)
+          ? `${location.protocol}//${location.host.replace(/^pediatric-panel/, 'pediatric-api')}`
+          : 'https://pediatric-api.daguito.com'
+        const apiBase = trusted(params.get('api')) || derivedApi
+
+        // `./panel.js` while the page sits next to the bundle in our bucket —
+        // same origin, no CORS. Under Daguito's domain it is an absolute url
+        // from the link, and the import is cross-origin: the bucket's CORS
+        // already allows exactly that origin (modules/r2-panel).
+        const panelOrigin = trusted(params.get('panel'))
+        const panelUrl = panelOrigin ? `${panelOrigin}/panel.js` : './panel.js'
 
         try {
           // React Refresh preamble — DEV ONLY, and the reason this block exists.
@@ -93,8 +169,9 @@
             /* built bundle: there is no refresh runtime, and none is needed */
           }
 
-          // Same origin as this file — see the note at the top.
-          const mod = await import('./panel.js')
+          // Same origin as this file, unless the link said otherwise — see the
+          // note where `panelUrl` is resolved.
+          const mod = await import(/* @vite-ignore */ panelUrl)
           root.innerHTML = ''
           mod.mountPatient(root, {
             apiBase,

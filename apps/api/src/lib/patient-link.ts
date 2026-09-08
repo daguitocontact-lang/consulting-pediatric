@@ -33,6 +33,7 @@
  */
 import { SignJWT, jwtVerify } from 'jose'
 import { sql } from './db'
+import { PANEL_ORIGIN, PATIENT_PAGE_IS_OURS, PATIENT_PAGE_URL } from './panel-origin'
 
 const META_KEY = 'patient_link_secret'
 
@@ -113,4 +114,60 @@ export async function verifyPatientLink(
   } catch {
     return null
   }
+}
+
+/**
+ * The url the doctor copies.
+ *
+ * The credential stays in the FRAGMENT: it is never sent to a server, never
+ * lands in an access log, and does not travel in a `Referer` when the page
+ * loads Jitsi's script from another origin. That is why the id is in there too
+ * rather than in the path — the parent's visit is not a line in somebody's
+ * request log, not even Daguito's.
+ *
+ * When the page is served under Daguito's domain (`PATIENT_BASE_URL`) the
+ * fragment also carries where to find this API and the bundle. It has to: the
+ * page used to read both off its own hostname, and on `app.daguito.com` that
+ * derivation gives Daguito's own host for the API and a `panel.js` that is not
+ * there. Both values are ours, both are public, and the page refuses any that
+ * is not under `daguito.com`.
+ */
+export function patientLinkUrl(
+  p: { consultationId: string; token: string; apiBase: string },
+  // Where the page is, as a parameter with the configured answer as its
+  // default: the rules above are then readable — and testable — without an
+  // environment, which is the same trick `meetingOptions` uses in the panel.
+  page: { url: string; ours: boolean; panelOrigin: string } = {
+    url: PATIENT_PAGE_URL,
+    ours: PATIENT_PAGE_IS_OURS,
+    panelOrigin: PANEL_ORIGIN,
+  },
+): string {
+  const fragment = new URLSearchParams({ c: p.consultationId, t: p.token })
+  if (!page.ours) {
+    fragment.set('api', p.apiBase)
+    fragment.set('panel', page.panelOrigin)
+  }
+  // `{id}` for a route whose path IS the consultation, which is what a SPA
+  // router gives you. The id stays in the fragment as well: that is where the
+  // page reads it from, in both hosting shapes, and one parser beats two.
+  const url = page.url.replace('{id}', encodeURIComponent(p.consultationId))
+  return `${url}#${fragment.toString()}`
+}
+
+/**
+ * This API's public base, as the caller reached it.
+ *
+ * Taken from the request rather than a variable: the doctor's panel called
+ * this route at the hostname the patient must call too, and cloudflared passes
+ * the original `Host` through untouched. `API_BASE_URL` overrides it for the
+ * case that breaks the assumption (a proxy that rewrites the host).
+ */
+export function apiBaseFromRequest(request: Request): string {
+  const configured = process.env.API_BASE_URL?.trim()
+  if (configured) return configured.replace(/\/+$/, '')
+  const host = request.headers.get('host')
+  if (!host) return ''
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
+  return `${proto}://${host}`
 }

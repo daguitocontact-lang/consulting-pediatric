@@ -95,7 +95,10 @@ describe('the video consultation, in order', () => {
         headers: await auth(),
       }),
     )
-    expect(url).toContain('/patient.html#c=')
+    // A route, not a file: the deploy publishes the page under the
+    // extensionless key the API links to (see lib/panel-origin.ts).
+    expect(url).toContain('/consulta#c=')
+    expect(url).not.toContain('.html')
     expect(url.split('#')[0]).not.toContain('t=')
     expect(url).toContain(id)
   })

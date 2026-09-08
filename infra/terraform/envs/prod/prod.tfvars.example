@@ -44,6 +44,13 @@ jitsi_app_secret = ""
 # The only browser origin that may load the panel and call the API (CORS).
 daguito_web_origin = "https://app.daguito.com"
 
+# Where the patient's page is served from. Empty = our own bucket
+# (<panel>/consulta — a route, not a .html). Set it to the route Daguito exposes
+# under its domain to hand parents an app.daguito.com link instead; it may carry
+# {id} when their router's route IS the consultation. Daguito must serve or
+# proxy that path; see the patient section of CLAUDE.md.
+patient_base_url = ""
+
 # Account key of the Daguito account that OWNS the consultation flows. Without
 # it the consultation has no engine: /stream/token and /chat answer 503 and the
 # panel says so (the room, the note by hand and the assistant thread still
