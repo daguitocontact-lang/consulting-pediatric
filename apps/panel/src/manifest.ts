@@ -1,10 +1,23 @@
 // What Daguito's menu gets from this custom.
 //
-// ONE row, on purpose. The host draws one menu item per entry here and has no
-// nesting, so a manifest with nine lines means nine rows scattered among the
-// host's own (Inicio, Conversaciones, Tickets…). The custom takes a single item
-// and switches its own sections in the bar above the page
-// (components/Shell.tsx), which is the grouping the host cannot express.
+// ONE ROW PER SECTION. The host draws one menu item per entry here, and this
+// panel publishes both of its sections — Consultas and Plantillas — so the
+// doctor switches them where every other row in that menu lives, instead of in
+// a second navigation of our own drawn inside the page.
+//
+// It used to be a single row with an in-panel tab bar, and the argument was
+// that our sections would be scattered among the host's own (Inicio,
+// Conversaciones, Tickets…). That stopped being true for this client the day
+// the org hid those rows: the menu holds this panel and little else, so there
+// is nothing left to be scattered among. Two navigations for the same two
+// screens is the worse trade — and the wrong one, because the panel cannot tell
+// the host which row is open (lib/route.ts writes the URL deliberately WITHOUT
+// the host's route event), so an in-panel switch left the sidebar highlighting
+// the section you had just left.
+//
+// The cost is honest: switching sections now goes through the host, which
+// re-mounts the panel's React tree instead of swapping a child. For two
+// sections that is a re-render nobody can see.
 //
 // Ids and module names are English like the rest of the code; the LABEL is UI
 // copy, so it comes from the dictionary and follows the viewer's language.
@@ -37,7 +50,23 @@ export const isLegacyPageId = (id: string): boolean => LEGACY_PAGE_IDS.includes(
  * `icon` is resolved inside the panel (components/Shell.tsx), not by the host,
  * so it is not bound to the closed set of lucide names Daguito maps.
  */
-export type SectionSpec = { id: string; labelKey: Key; icon: string }
+export type SectionSpec = {
+  id: string
+  labelKey: Key
+  icon: string
+  /**
+   * The icon the HOST draws for this row, by name.
+   *
+   * Daguito resolves it against a CLOSED registry it bundles at build time
+   * (apps/web/src/lib/custom-panel-icons.ts) — a custom cannot pull an arbitrary
+   * lucide icon into Daguito's bundle, and a name that is not there silently
+   * falls back to a generic grid. So this is not the same field as `icon`
+   * above, which the panel resolves for itself and is free to be anything.
+   * `Stethoscope` and `FileText` would be the honest ones; neither is in that
+   * registry today, and adding them is a one-line change in Daguito's repo.
+   */
+  menuIcon: string
+}
 
 /**
  * Every section, in the order the day is read. The panel opens on the FIRST one
@@ -46,8 +75,13 @@ export type SectionSpec = { id: string; labelKey: Key; icon: string }
  * one a build error instead of a tab that lands nowhere.
  */
 export const SECTIONS = [
-  { id: 'consultations', labelKey: 'nav.consultations', icon: 'Stethoscope' },
-  { id: 'templates', labelKey: 'nav.templates', icon: 'FileText' },
+  {
+    id: 'consultations',
+    labelKey: 'nav.consultations',
+    icon: 'Stethoscope',
+    menuIcon: 'CalendarCheck',
+  },
+  { id: 'templates', labelKey: 'nav.templates', icon: 'FileText', menuIcon: 'ClipboardList' },
   // `home` is deliberately NOT here. It is the template's placeholder page and
   // has nothing on it yet, so it is not worth a third of the top bar — but the
   // module still ships and still mounts (see PAGES in entry.tsx), so an old
@@ -83,14 +117,20 @@ export const isNavSectionId = (id: string): id is NavSectionId => NAV_IDS.includ
  * and the row ships either way.
  */
 export function buildManifest(locale?: string): PanelPage[] {
-  const row = (label: string): PanelPage[] => [
-    { id: MENU_PAGE_ID, label, icon: 'LayoutGrid', module: `./${MENU_PAGE_ID}` },
-  ]
+  const rows = (label: (section: SectionSpec) => string): PanelPage[] =>
+    SECTIONS.map((section) => ({
+      id: section.id,
+      label: label(section),
+      icon: section.menuIcon,
+      module: `./${section.id}`,
+    }))
   try {
-    return row(translator(locale).t('nav.group'))
+    const t = translator(locale).t
+    return rows((section) => t(section.labelKey))
   } catch {
-    // Untranslated, but present: a menu row that opens the panel beats no row.
-    return row('Pediatric')
+    // Untranslated, but present: menu rows that open the panel beat no rows.
+    // The ids are what make them work, and those never came from a dictionary.
+    return rows((section) => section.id)
   }
 }
 

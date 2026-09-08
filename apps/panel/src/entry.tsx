@@ -12,17 +12,15 @@
 // API calls twice inside a host that is already a dev build. The host decides
 // dev vs prod, not the remote.
 import { createRoot, type Root } from 'react-dom/client'
-import { useCallback, useEffect, useState } from 'react'
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
 import { TamaguiProvider, Text, Theme, XStack, YStack } from 'tamagui'
 import { tamaguiConfig } from './theme/config'
 import { ensureKeyframes } from './ui/lib/keyframes'
 import { ToastProvider } from './components/Toast'
-import { Shell } from './components/Shell'
 import {
   MENU_PAGE_ID,
   buildManifest,
   isLegacyPageId,
-  isNavSectionId,
   type NavSectionId,
   type PanelPage,
 } from './manifest'
@@ -151,47 +149,36 @@ function sectionFor(pageId: string): SectionId | null {
 }
 
 /**
- * The custom's single menu row, with its own sections inside.
+ * One section of the panel, mounted by the host.
  *
- * The section is state here and the tab switch never goes THROUGH Daguito: the
- * host mounts the panel once per route and re-mounts on nothing else, so a
- * switch routed through the host would cost a full unmount/mount of the React
- * tree. The incoming `pageId` still seeds it, which is what keeps a deep link
- * (and the dev harness, which mounts every page by id) landing where it asked.
+ * The manifest publishes a row per section, so WHICH section is open is the
+ * host's business: it routes `/custom-panel/<id>`, mounts us with that id, and
+ * highlights the matching row. There is no switcher in here any more, and there
+ * must not be one — the panel cannot tell the host that the section changed
+ * (lib/route.ts writes the URL deliberately without the host's route event, to
+ * avoid a re-mount), so a second switcher could only leave the sidebar
+ * highlighting the section the doctor had just left.
  *
- * The URL is kept in step all the same — written behind the host's back rather
- * than by asking it to navigate. See lib/route.ts for why that is safe and how
- * back/forward survive it.
+ * The URL is still named on landing: the bare `/custom-panel` route arrives
+ * with no id, opens on the first section, and an address bar that does not say
+ * which one is not a link anybody can pass on. Replaces rather than pushes —
+ * nobody navigated there.
  */
 function Panel(props: MountProps) {
-  const i18n = translator(props.locale)
-  const [section, setSection] = useState(() => sectionFor(props.pageId))
+  const section = sectionFor(props.pageId)
 
-  // The section the mount landed on, named in the address bar from the first
-  // paint: the host may have sent us to the bare /custom-panel route, and a URL
-  // that does not say which tab is open is not one anybody can pass on.
-  // Replaces rather than pushes — nobody navigated here.
   useEffect(() => {
     if (section) writeSection(section, { replace: true })
-    // Once, for the landing section. Every later change is a click, and
-    // selectSection pushes its own entry.
+    // Once, for the landing section: every later change is a host navigation,
+    // which re-mounts this component with the new id.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const selectSection = useCallback((id: NavSectionId) => {
-    setSection(id)
-    writeSection(id)
   }, [])
 
   const Page = section ? PAGES[section] : null
   return (
-    <Shell
-      active={section && isNavSectionId(section) ? section : null}
-      i18n={i18n}
-      onSelect={selectSection}
-    >
+    <YStack flex={1} minHeight="100%">
       {Page ? <Page {...props} /> : <UnknownPage pageId={props.pageId} />}
-    </Shell>
+    </YStack>
   )
 }
 
@@ -356,6 +343,73 @@ const PANEL_CSS = `
 }
 `
 
+/**
+ * A render error stops here instead of taking the panel down.
+ *
+ * Without it the failure is invisible AND self-repeating: React tears the whole
+ * root down, the host sees an empty node and re-mounts us, and the same render
+ * throws again — which reads as the panel reloading itself rather than as a bug
+ * with a stack. The screen says what happened, and the console gets the one
+ * thing the raw error does not carry: the COMPONENT stack, which is what names
+ * the component that threw.
+ *
+ * It matters here more than in a normal app. This bundle runs inside Daguito's
+ * page, next to Daguito's own React, and the failure that looks exactly like
+ * this — React #321, "invalid hook call" — comes from rendering a component
+ * that belongs to the HOST's bundle with OUR React. The component stack is what
+ * identifies it; the minified error alone cannot.
+ */
+class PanelErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null; stack: string }
+> {
+  state: { error: Error | null; stack: string } = { error: null, stack: '' }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[pediatric-panel] render failed:', error)
+    console.error('[pediatric-panel] component stack:', info.componentStack)
+    // ON SCREEN too, not only in the console: this panel is read on a phone
+    // inside the host's page, where opening a console is not a thing anybody is
+    // going to do, and the component stack is the only line that names what
+    // broke. Trimmed to the frames nearest the throw — the rest is our own
+    // providers, the same on every crash.
+    this.setState({ stack: (info.componentStack ?? '').trim().split('\n').slice(0, 8).join('\n') })
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <YStack padding="$2.5" gap="$0.75">
+        <Text fontSize={16} fontWeight="800" color="$color">
+          Se cayó esta pantalla
+        </Text>
+        <Text fontSize={13} color="$color11">
+          {this.state.error.message}
+        </Text>
+        {this.state.stack ? (
+          <YStack
+            backgroundColor="$color2"
+            borderRadius={8}
+            padding="$1.5"
+            style={{ overflowX: 'auto' }}
+          >
+            <Text fontSize={11} color="$color11" fontFamily="$mono" whiteSpace="pre">
+              {this.state.stack}
+            </Text>
+          </YStack>
+        ) : null}
+        <Text fontSize={12} color="$color11">
+          El detalle completo quedó en la consola del navegador.
+        </Text>
+      </YStack>
+    )
+  }
+}
+
 /** Mount the panel into `el`. Daguito calls this with the page id + token. */
 export function mount(el: HTMLElement, props: MountProps): void {
   // The host hands the same token it minted at load on every page change; the
@@ -385,14 +439,17 @@ export function mount(el: HTMLElement, props: MountProps): void {
 
   record.root.render(
     <Themed theme={props.theme}>
-      {/* Above the page, so any page can report what a write did. */}
-      <ToastProvider>
-        <SessionGuard>
-          {/* Keyed by the id the host asked for: a new route seeds a new tab,
-              while a re-render with the same one keeps the open section. */}
-          <Panel key={props.pageId} {...props} />
-        </SessionGuard>
-      </ToastProvider>
+      {/* Outside the providers: one that throws has to be caught too. */}
+      <PanelErrorBoundary>
+        {/* Above the page, so any page can report what a write did. */}
+        <ToastProvider>
+          <SessionGuard>
+            {/* Keyed by the id the host asked for: a new route seeds a new tab,
+                while a re-render with the same one keeps the open section. */}
+            <Panel key={props.pageId} {...props} />
+          </SessionGuard>
+        </ToastProvider>
+      </PanelErrorBoundary>
     </Themed>,
   )
 }

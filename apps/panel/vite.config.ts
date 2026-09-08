@@ -178,7 +178,29 @@ export default defineConfig({
     rollupOptions: {
       // Everything is bundled (self-contained), nothing external: the host
       // shares no React instance with the remote — see entry.tsx.
-      output: { inlineDynamicImports: true },
+      output: {
+        inlineDynamicImports: true,
+        // Runs BEFORE any module in this bundle, which is the whole point.
+        //
+        // Tamagui keeps its config on `globalThis.__tamaguiConfig`, and every
+        // component binds one the moment it is CREATED — `onConfiguredOnce`
+        // (config.mjs) reads `local || global` and, being "once", never lets go.
+        // Daguito is a Tamagui app too and has already left its config on that
+        // global by the time we load, so every component inside @tamagui/core
+        // that is created while our own `createTamagui()` has not run yet binds
+        // the HOST's config. It then takes `config.animations.ResetPresence`
+        // from it — a component from the HOST's bundle — and renders it with
+        // OUR React: React error #321, "invalid hook call", which is what took
+        // the consultation chat down.
+        //
+        // So the global is hidden for the length of our initialization. The
+        // host's value is parked here and put back in src/theme/config.ts as
+        // soon as our config exists — see the note there for why giving it back
+        // matters as much as taking it away.
+        banner:
+          'globalThis.__pediatricHostTamaguiConfig = globalThis.__tamaguiConfig;' +
+          'globalThis.__tamaguiConfig = undefined;',
+      },
     },
   },
 })

@@ -49,6 +49,29 @@ export const tamaguiConfig = createTamagui({
   },
 })
 
+// ── Give the host its config back ────────────────────────────────────
+//
+// `createTamagui` above did two things: it set this bundle's own module-local
+// config (which is what every component of OURS created from here on will bind)
+// and it wrote that config to `globalThis.__tamaguiConfig`, which is SHARED
+// with Daguito. The build's banner (vite.config.ts) parked the host's value
+// before any of this ran, and this puts it back.
+//
+// Leaving ours there is not harmless. The host creates Tamagui components
+// lazily — its pages are `React.lazy` — and each one binds whatever is on that
+// global at the moment it is created. Ours would hand Daguito's components our
+// themes, our tokens and, worst of all, our animation driver, whose
+// `ResetPresence` is a function from THIS bundle rendered by THEIR React: the
+// same React #321 we just fixed, pointing the other way.
+//
+// Neither side reads the global again once it has its own: `getConfig()` is
+// `local || global`, and both called `createTamagui`. The global is only the
+// fallback, and the fallback should be the host's — it owns the page.
+const hostConfig = (globalThis as Record<string, unknown>).__pediatricHostTamaguiConfig
+if (hostConfig) {
+  ;(globalThis as Record<string, unknown>).__tamaguiConfig = hostConfig
+}
+
 export type AppConfig = typeof tamaguiConfig
 
 // No `declare module '@tamagui/core'` augmentation on purpose. The core does not
