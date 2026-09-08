@@ -17,6 +17,7 @@ import { Send, Sparkles } from '@tamagui/lucide-icons'
 import { ScrollView, Text, XStack, YStack } from 'tamagui'
 import { apiPost, errorMessage, type MountProps } from '../lib/api'
 import type { translator } from '../lib/i18n'
+import { Markdown } from './Markdown'
 import { Button, Spinner } from './ui'
 
 export type AssistantMessage = { role: 'doctor' | 'assistant'; body: string }
@@ -78,10 +79,7 @@ export function TemplateAssistant({
         { role: 'assistant', body: turn.reply || t('template.bot.silent') },
       ])
     } catch (err) {
-      setMessages((current) => [
-        ...current,
-        { role: 'assistant', body: errorMessage(err, i18n) },
-      ])
+      setMessages((current) => [...current, { role: 'assistant', body: errorMessage(err, i18n) }])
     } finally {
       setSending(false)
     }
@@ -147,9 +145,15 @@ export function TemplateAssistant({
                   borderRadius="$4"
                   backgroundColor={mine ? '$actionSurfaceHover' : '$color3'}
                 >
-                  <Text fontSize={13} color="$color" lineHeight={19} whiteSpace="pre-wrap">
-                    {message.body}
-                  </Text>
+                  {/* Same as the consultation assistant: what the bot writes
+                      is markdown, what the doctor typed is text. */}
+                  {mine ? (
+                    <Text fontSize={13} color="$color" lineHeight={19} whiteSpace="pre-wrap">
+                      {message.body}
+                    </Text>
+                  ) : (
+                    <Markdown text={message.body} fontSize={13} lineHeight={19} />
+                  )}
                 </YStack>
               )
             })}

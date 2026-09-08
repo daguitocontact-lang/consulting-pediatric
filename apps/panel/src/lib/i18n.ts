@@ -104,7 +104,8 @@ const es = {
   'workspace.start': 'Iniciar consulta',
   'workspace.stop': 'Detener consulta',
   'workspace.joinFirst': 'Ingresa a la reunión para iniciar',
-  'workspace.room.optional': 'Esta consulta no necesita videollamada. Abre la sala solo si quieres sumar a alguien: un acudiente, una interconsulta, un intérprete.',
+  'workspace.room.optional':
+    'Esta consulta no necesita videollamada. Abre la sala solo si quieres sumar a alguien: un acudiente, una interconsulta, un intérprete.',
   'workspace.room.open': 'Abrir la sala',
   'workspace.recording': 'Grabando',
   'workspace.stream.connecting': 'Conectando el motor…',
@@ -174,6 +175,13 @@ const es = {
   'workspace.audio.retry': 'Reintentar',
   'workspace.audio.replace': 'Reemplazar',
   'workspace.audio.remove': 'Quitar',
+  // La barra del editor de markdown (components/MarkdownEditor.tsx): la nota y
+  // la plantilla son markdown, y estos botones escriben los mismos marcadores
+  // que el médico teclearía.
+  'editor.bold': 'Negrita (⌘B)',
+  'editor.italic': 'Cursiva (⌘I)',
+  'editor.list': 'Lista',
+
   'template.body': 'Estructura de la nota',
   'template.body.hint':
     'Escribe tu plantilla y marca cada dato a extraer con [[descripción del dato]]. El motor rellena esos huecos y deja el resto tal cual.',
@@ -199,7 +207,8 @@ const es = {
   'workspace.chat.intro': 'Pregúntale sobre esta consulta.',
   'workspace.chat.placeholder': 'Escribe un mensaje…',
   'workspace.chat.send': 'Enviar',
-  'workspace.chat.pending': 'El asistente aún no está conectado; tu mensaje queda guardado en el hilo.',
+  'workspace.chat.pending':
+    'El asistente aún no está conectado; tu mensaje queda guardado en el hilo.',
   'workspace.chat.thinking': 'El asistente está pensando…',
   'workspace.chat.disclaimer':
     'El asistente se basa en IA y puede equivocarse. Revisa y valida con tu criterio clínico.',
@@ -316,7 +325,8 @@ const en: Record<Key, string> = {
   'workspace.start': 'Start consultation',
   'workspace.stop': 'Stop consultation',
   'workspace.joinFirst': 'Join the room to start',
-  'workspace.room.optional': 'This consultation needs no video call. Open the room only to bring somebody in: a guardian, a second opinion, an interpreter.',
+  'workspace.room.optional':
+    'This consultation needs no video call. Open the room only to bring somebody in: a guardian, a second opinion, an interpreter.',
   'workspace.room.open': 'Open the room',
   'workspace.recording': 'Recording',
   'workspace.stream.connecting': 'Connecting the engine…',
@@ -364,8 +374,7 @@ const en: Record<Key, string> = {
   'workspace.finished': 'Consultation finished',
   'workspace.transcript.emptyHint':
     'It fills in with what is said, as soon as you start the consultation.',
-  'workspace.recommendations.emptyHint':
-    'The engine suggests them as the conversation goes on.',
+  'workspace.recommendations.emptyHint': 'The engine suggests them as the conversation goes on.',
   'layout.resize': 'Resize',
   'layout.move': 'Move panel',
   'workspace.room.ended': 'The meeting has ended',
@@ -385,6 +394,10 @@ const en: Record<Key, string> = {
   'workspace.audio.retry': 'Retry',
   'workspace.audio.replace': 'Replace',
   'workspace.audio.remove': 'Remove',
+  'editor.bold': 'Bold (⌘B)',
+  'editor.italic': 'Italic (⌘I)',
+  'editor.list': 'List',
+
   'template.body': 'Note structure',
   'template.body.hint':
     'Write your template and mark each value to extract with [[a description of it]]. The engine fills those blanks and leaves everything else exactly as written.',
@@ -412,7 +425,8 @@ const en: Record<Key, string> = {
   'workspace.chat.intro': 'Ask it about this consultation.',
   'workspace.chat.placeholder': 'Type a message…',
   'workspace.chat.send': 'Send',
-  'workspace.chat.pending': 'The assistant is not connected yet; your message is kept in the thread.',
+  'workspace.chat.pending':
+    'The assistant is not connected yet; your message is kept in the thread.',
   'workspace.chat.thinking': 'The assistant is thinking…',
   'workspace.chat.disclaimer':
     'The assistant is AI-based and can be wrong. Review and validate with your clinical judgement.',

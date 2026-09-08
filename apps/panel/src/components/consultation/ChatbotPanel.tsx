@@ -15,6 +15,7 @@ import { Send, Stethoscope } from '@tamagui/lucide-icons'
 import { ScrollView, Text, XStack, YStack } from 'tamagui'
 import type { translator } from '../../lib/i18n'
 import type { ChatMessage } from '../../lib/workspace'
+import { Markdown } from '../Markdown'
 import { Button } from '../ui'
 import { PanelEmpty } from './Panel'
 
@@ -107,14 +108,17 @@ export function ChatbotPanel({
                   borderBottomLeftRadius={mine ? 12 : 3}
                   backgroundColor={mine ? '$actionSurfacePress' : '$color3'}
                 >
-                  <Text
-                    fontSize={14}
-                    color={mine ? '$actionText' : '$color'}
-                    lineHeight={21}
-                    whiteSpace="pre-wrap"
-                  >
-                    {message.body}
-                  </Text>
+                  {/* The assistant answers in markdown, like every chat model:
+                      `**Primera línea**`, a dash list of doses under it. The
+                      doctor's own message is text they typed — rendering it
+                      would rewrite what is in the record. */}
+                  {mine ? (
+                    <Text fontSize={14} color="$actionText" lineHeight={21} whiteSpace="pre-wrap">
+                      {message.body}
+                    </Text>
+                  ) : (
+                    <Markdown text={message.body} fontSize={14} lineHeight={21} />
+                  )}
                 </YStack>
               )
             })}

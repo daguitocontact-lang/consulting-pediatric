@@ -22,6 +22,7 @@ import { useToast } from '../components/Toast'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Badge, Button, InputFrame, Spinner } from '../components/ui'
 import { TemplateAssistant } from '../components/TemplateAssistant'
+import { MarkdownEditor } from '../components/MarkdownEditor'
 
 export type Template = {
   id: string
@@ -140,9 +141,7 @@ export function Page(props: MountProps) {
         await state.reload()
         // Retired, not deleted, when consultations still point at it — the
         // difference is worth saying: the old notes keep their template name.
-        toast.success(
-          outcome === 'deactivated' ? t('template.retired') : t('template.deleted'),
-        )
+        toast.success(outcome === 'deactivated' ? t('template.retired') : t('template.deleted'))
       } catch (err) {
         toast.error(errorMessage(err, i18n))
       }
@@ -190,9 +189,7 @@ export function Page(props: MountProps) {
                 borderRadius="$3"
                 borderWidth={1}
                 borderColor={template.id === selectedId ? '$actionText' : '$borderColor'}
-                backgroundColor={
-                  template.id === selectedId ? '$actionSurfaceHover' : '$background'
-                }
+                backgroundColor={template.id === selectedId ? '$actionSurfaceHover' : '$background'}
                 cursor="pointer"
                 onPress={() => setSelectedId(template.id)}
               >
@@ -227,58 +224,58 @@ export function Page(props: MountProps) {
           {/* The editor, with the bot beside it */}
           {selected ? (
             <XStack flex={1} gap="$1.5" $sm={{ flexDirection: 'column' }}>
-            <YStack flex={1} gap="$1" minWidth={280}>
-              <InputFrame
-                fullWidth
-                value={title}
-                onChangeText={setTitle}
-                placeholder={t('template.title')}
-              />
-              <Text fontSize={12} color="$color11">
-                {t('template.body.hint')}
-              </Text>
-              {/* A plain textarea on purpose: this is markdown the doctor
+              <YStack flex={1} gap="$1" minWidth={280}>
+                <InputFrame
+                  fullWidth
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder={t('template.title')}
+                />
+                <Text fontSize={12} color="$color11">
+                  {t('template.body.hint')}
+                </Text>
+                {/* A plain textarea on purpose: this is markdown the doctor
                   authors, and a rich editor would fight the `[[…]]` syntax the
-                  flow parses. */}
-              <textarea
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-                spellCheck
-                style={{
-                  flex: 1,
-                  minHeight: 320,
-                  padding: 12,
-                  borderRadius: 8,
-                  border: '1px solid var(--borderColor)',
-                  background: 'var(--background)',
-                  color: 'var(--color)',
-                  font: '13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
-                  resize: 'vertical',
-                }}
-              />
-              <XStack gap="$0.5">
-                <Button size="sm" variant="primary" disabled={saving} onPress={save}>
-                  {t('template.body.save')}
-                </Button>
-              </XStack>
-            </YStack>
+                  flow parses. The toolbar writes the same markers by hand — it
+                  never touches a blank. */}
+                <MarkdownEditor
+                  i18n={i18n}
+                  value={body}
+                  onChange={setBody}
+                  minHeight={320}
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid var(--borderColor)',
+                    background: 'var(--background)',
+                    color: 'var(--color)',
+                    font: '13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
+                    resize: 'vertical',
+                  }}
+                />
+                <XStack gap="$0.5">
+                  <Button size="sm" variant="primary" disabled={saving} onPress={save}>
+                    {t('template.body.save')}
+                  </Button>
+                </XStack>
+              </YStack>
 
-            {/* The bot writes to the ROW, not to this textarea, so when a turn
+              {/* The bot writes to the ROW, not to this textarea, so when a turn
                 edits it hands back the body as it now stands and the editor
                 re-renders from that. Anything the doctor had typed and not
                 saved would be lost, so the draft is saved first — an edit the
                 bot cannot see is an edit it will overwrite. */}
-            <YStack width={320} $sm={{ width: '100%' }}>
-              <TemplateAssistant
-                props={props}
-                i18n={i18n}
-                templateId={selected.id}
-                onEdited={(nextBody) => {
-                  setBody(nextBody)
-                  void state.reload()
-                }}
-              />
-            </YStack>
+              <YStack width={320} $sm={{ width: '100%' }}>
+                <TemplateAssistant
+                  props={props}
+                  i18n={i18n}
+                  templateId={selected.id}
+                  onEdited={(nextBody) => {
+                    setBody(nextBody)
+                    void state.reload()
+                  }}
+                />
+              </YStack>
             </XStack>
           ) : null}
         </XStack>

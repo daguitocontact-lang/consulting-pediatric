@@ -14,6 +14,8 @@ import { formatDuration } from '../../lib/consultations'
 import type { ClinicalNote, Recommendation, TranscriptSegment } from '../../lib/workspace'
 import type { PartialLine } from '../../lib/useConsultationStream'
 import { PanelEmpty } from './Panel'
+import { Markdown } from '../Markdown'
+import { MarkdownEditor } from '../MarkdownEditor'
 import { Badge, Button } from '../ui'
 
 // ── Recomendaciones ───────────────────────────────────────────────────
@@ -133,23 +135,9 @@ export function NotePanel({
     return (
       <YStack flex={1} padding="$1" gap="$1">
         {/* A plain textarea, not a rich editor: the note is markdown, the
-            doctor edits it as text, and the flow writes the same field. */}
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          style={{
-            flex: 1,
-            minHeight: 160,
-            resize: 'none',
-            border: 'none',
-            outline: 'none',
-            background: 'transparent',
-            color: 'inherit',
-            font: 'inherit',
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        />
+            doctor edits it as text, and the flow writes the same field. The
+            toolbar and ⌘B only write the markers the doctor would type. */}
+        <MarkdownEditor i18n={i18n} value={draft} onChange={setDraft} />
         <XStack gap="$0.5" justifyContent="flex-end">
           <Button size="sm" variant="ghost" onPress={() => setEditing(false)}>
             {t('form.cancel')}
@@ -178,17 +166,12 @@ export function NotePanel({
   return (
     <YStack flex={1}>
       <ScrollView flex={1}>
-        {/* Markdown as written. Rendering it is the next step; showing it
-            verbatim is honest and readable, and never mangles a heading. */}
-        <Text
-          padding="$1.5"
-          fontSize={13}
-          lineHeight={20}
-          color="$color"
-          whiteSpace="pre-wrap"
-        >
-          {note?.body}
-        </Text>
+        {/* The note IS markdown — `c_soap` fills a template whose sections are
+            `##` headings — so it is rendered, not shown with its punctuation.
+            The doctor reads this before signing it. */}
+        <YStack padding="$1.5">
+          <Markdown text={note?.body ?? ''} />
+        </YStack>
       </ScrollView>
       <XStack padding="$1" gap="$0.5" justifyContent="space-between" alignItems="center">
         <Text fontSize={11} color="$color11">
