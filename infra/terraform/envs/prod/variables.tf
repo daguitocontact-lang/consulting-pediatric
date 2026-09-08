@@ -88,6 +88,13 @@ variable "daguito_webhook_secret" {
   description = "Secret of the pediatric-ticket-resolved webhook subscription (whsec_...). The API verifies x-daguito-signature with it. Shown once when the subscription is created. Empty = the receiver answers 503."
 }
 
+variable "daguito_stream_api_key" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Account key (dgsk_acc_...) of the Daguito account that owns the consultation flows (realtime-consultation, in-person-consultation, pre-recorded-consultation, consultation-chatbot). The API resolves the flow webhook and mints per-session stream tokens with it; the key never reaches the browser. Stored as an SSM SecureString. Empty = /stream/token and /chat answer 503 and the panel says \"no transcription engine\" — room, hand-written note and assistant thread still work. May be the same key as daguito_api_key if one account owns both."
+}
+
 variable "daguito_web_origin" {
   type        = string
   default     = "https://app.daguito.com"

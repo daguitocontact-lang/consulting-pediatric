@@ -11,7 +11,7 @@ daguito_org_ids = "REPLACE_ME"
 
 # GitHub repo of this custom: its `main` may assume the CI deploy role. The ids
 # form is optional (survives renames): gh api repos/<owner>/<repo> -q '"\(.owner.id) \(.id)"'
-github_repo     = "REPLACE_ME/consulting-pediatric"
+github_repo     = "daguitocontact-lang/consulting-pediatric"
 github_repo_ids = "" # optional, rename-proof: gh api repos/<owner>/<repo> -q "\(.owner.id) \(.id)"
 
 # Cloudflare (daguito.com zone). Get from the Cloudflare dashboard.
@@ -30,9 +30,36 @@ EOT
 # LATEST revision, so keep it at the running image once one exists.
 # image = "<account>.dkr.ecr.us-east-1.amazonaws.com/pediatric-api:<sha>"
 
-# Jitsi (the video room every consultation owns). Empty domain = the public
-# meet.jit.si; empty id/secret = PUBLIC rooms, which is a pilot setting, not a
-# setting for patient data.
-jitsi_domain     = ""
+# Jitsi (the video room every consultation owns). The self-hosted server the
+# legacy product uses, which is anonymous — its own .env carries no JITSI_*
+# variables at all. Do NOT leave the domain empty: the fallback is the public
+# meet.jit.si, and there the consultation never starts (it holds every joiner in
+# a guest lobby, "no moderators have yet arrived", because only 8x8 accounts are
+# moderators there). Empty id/secret = PUBLIC rooms, which is why the room name
+# is random and not derived from the consultation id.
+jitsi_domain     = "meet.midulabs.com"
 jitsi_app_id     = ""
 jitsi_app_secret = ""
+
+# The only browser origin that may load the panel and call the API (CORS).
+daguito_web_origin = "https://app.daguito.com"
+
+# Account key of the Daguito account that OWNS the consultation flows. Without
+# it the consultation has no engine: /stream/token and /chat answer 503 and the
+# panel says so (the room, the note by hand and the assistant thread still
+# work). Often the same key as daguito_api_key.
+daguito_stream_api_key = ""
+
+# Account key (dgsk_acc_...) this custom registers its contact custom fields
+# with, at boot. Empty = the registration is skipped and the API boots anyway.
+daguito_api_key = ""
+
+# Secret of the inbound webhook subscription (whsec_...). Empty = the receiver
+# answers 503.
+daguito_webhook_secret = ""
+
+# R2 token with Object Read & Write on <client>-docs (Cloudflare dashboard →
+# R2 → Manage API tokens; the secret is shown once). Empty = the API keeps the
+# uploads on the task's own disk, which the next deploy throws away.
+r2_access_key_id     = ""
+r2_secret_access_key = ""

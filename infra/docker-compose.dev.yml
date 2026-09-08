@@ -17,7 +17,10 @@ name: pediatric
 services:
   # ── Postgres (mirrors RDS: plain Postgres 16, no TLS locally) ────────
   postgres:
-    image: postgres:16-alpine
+    # Matches the RDS in prod (PostgreSQL 18). Dev and prod on different MAJOR
+    # versions is a gap the tests can never see: they run here, the migrations
+    # apply there. Verified — the whole API suite passes on 18.6.
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pediatric_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pediatric}

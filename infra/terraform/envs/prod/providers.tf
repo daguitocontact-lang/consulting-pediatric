@@ -8,7 +8,7 @@ provider "aws" {
       Client    = var.client_name
       Env       = var.env
       ManagedBy = "terraform"
-      Repo      = "somos-pediatric"
+      Repo      = "daguitocontact-lang/consulting-pediatric"
     }
   }
 }

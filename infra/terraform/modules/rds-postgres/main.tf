@@ -72,9 +72,14 @@ resource "aws_security_group_rule" "from_client" {
 }
 
 resource "aws_db_instance" "this" {
-  identifier     = var.name
-  engine         = "postgres"
-  engine_version = "16"
+  identifier = var.name
+  engine     = "postgres"
+  # Major version only: AWS picks the current minor, and a minor bump applied by
+  # the maintenance window must not show up as drift. Keep it in step with the
+  # Postgres image in infra/docker-compose.dev.yml — dev and prod on different
+  # MAJORS is a gap no test can see, because the tests run against dev and the
+  # migrations run against this.
+  engine_version = "18"
   instance_class = var.instance_class
 
   db_name  = var.db_name
@@ -93,8 +98,12 @@ resource "aws_db_instance" "this" {
 
   backup_retention_period = 7
   skip_final_snapshot     = true
-  deletion_protection     = false
-  apply_immediately       = true
+  # On, and on for the same reason the backups are: what is in here is the
+  # clinical record — transcripts, notes, recommendations — and it exists in
+  # exactly one place. It costs nothing, and the only thing it blocks is an
+  # accidental `terraform destroy` taking the database with it.
+  deletion_protection = true
+  apply_immediately   = true
 
   tags = { Name = var.name }
 }

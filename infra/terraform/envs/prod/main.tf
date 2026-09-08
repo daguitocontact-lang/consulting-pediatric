@@ -98,6 +98,20 @@ resource "aws_ssm_parameter" "daguito_webhook_secret" {
   value = var.daguito_webhook_secret
 }
 
+# ── Key that mints the consultation's stream tokens ──────────────────
+# The account key of the Daguito account that OWNS the consultation flows
+# (realtime-consultation, in-person-consultation, pre-recorded-consultation,
+# consultation-chatbot). src/lib/daguito-stream.ts resolves the flow webhook
+# with it and mints a per-session token; the key itself never leaves the task.
+# Empty = /stream/token and /chat answer 503 and the panel says so — the room,
+# the note by hand and the assistant thread still work.
+resource "aws_ssm_parameter" "daguito_stream_api_key" {
+  count = var.daguito_stream_api_key == "" ? 0 : 1
+  name  = "${local.ssm_api}/DAGUITO_STREAM_API_KEY"
+  type  = "SecureString"
+  value = var.daguito_stream_api_key
+}
+
 # ── Jitsi room signing key ───────────────────────────────────────────
 # The rooms are only as private as this secret: without it the API signs no
 # token and Jitsi lets anyone with the room name in (the API says so in its
@@ -131,6 +145,17 @@ module "ecs" {
     # handed the domain at runtime, so it is configured here and not in a build.
     JITSI_DOMAIN = var.jitsi_domain
     JITSI_APP_ID = var.jitsi_app_id
+    # Where the panel is served from. The API needs it twice and both have to
+    # agree (src/lib/panel-origin.ts): the patient's link is built from it and
+    # the CORS allow-list is opened for it. Same value the r2_panel module
+    # publishes, so the two cannot drift apart.
+    PANEL_BASE_URL = module.r2_panel.panel_url
+    # The private documents bucket (src/lib/storage.ts). The credentials go in
+    # as secrets below, but the driver only turns on when all FOUR are present:
+    # without these two the API boots, logs "no R2_* configured" and writes the
+    # uploads to the task's own disk, where the next deploy throws them away.
+    R2_ACCOUNT_ID = var.cloudflare_account_id
+    R2_BUCKET     = module.r2_documents.bucket_name
   }
   secret_ssm_arns = merge(
     {
@@ -145,6 +170,15 @@ module "ecs" {
     },
     var.jitsi_app_secret == "" ? {} : {
       JITSI_APP_SECRET = aws_ssm_parameter.jitsi_app_secret[0].arn
+    },
+    var.daguito_stream_api_key == "" ? {} : {
+      DAGUITO_STREAM_API_KEY = aws_ssm_parameter.daguito_stream_api_key[0].arn
+    },
+    var.r2_access_key_id == "" ? {} : {
+      R2_ACCESS_KEY_ID = aws_ssm_parameter.r2_access_key_id[0].arn
+    },
+    var.r2_secret_access_key == "" ? {} : {
+      R2_SECRET_ACCESS_KEY = aws_ssm_parameter.r2_secret_access_key[0].arn
     },
   )
 }
