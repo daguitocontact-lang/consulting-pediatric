@@ -381,7 +381,14 @@ funcionando.
 | `deploy-panel.yml` | `apps/panel/RELEASE` (build `panel.js` → R2 `pediatric-panel`) |
 
 Receta: bump `package.json` → bump `RELEASE` → commit+push a `main`. Sin bump, no deploy.
-Manual: `./scripts/deploy.sh` (build ARM nativo).
+El orden importa: **primero el panel**, que es quien publica la key `consulta` a
+la que la API le manda los links del paciente; una API que sale antes acuña
+links que dan 404 hasta que el panel aterrice.
+
+Manual, cuando CI no es opción: `./scripts/deploy.sh` (API, build ARM nativo) y
+`./scripts/deploy-panel.sh` (panel + página del paciente en R2, con purge y
+smoke). El segundo necesita `CLOUDFLARE_API_TOKEN` con R2 Object Read & Write —
+exportado o en `infra/.env`.
 
 **El panel se propaga solo.** Daguito importa UNA url (`…/panel.js`), así que no
 hay nombre con hash que hacer inmutable: la frescura la dan dos piezas que van
