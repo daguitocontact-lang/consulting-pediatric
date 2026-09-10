@@ -55,6 +55,13 @@ jitsi_app_secret = ""
 #   jitsi_app_secret        = ""                           # empty = generated, and nobody has to know it
 #   jitsi_instance_type     = "t4g.small"                  # t4g.medium once consultations overlap 4-5 deep
 #   jitsi_video_height      = 720                          # 360 cuts the relayed egress to a third
+#
+# And the escape hatch, for when the box is up but the consultations should not
+# go there yet — it keeps the box, its DNS and its certificate, and moves only
+# the API's env (the credentials are not injected, so the rooms are public,
+# which is what the legacy server expects):
+#
+#   jitsi_api_domain = "meet.midulabs.com"
 
 # The only browser origin that may load the panel and call the API (CORS).
 daguito_web_origin = "https://app.daguito.com"

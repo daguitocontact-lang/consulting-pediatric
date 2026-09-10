@@ -130,6 +130,12 @@ variable "jitsi_self_hosted" {
   description = "Run the client's own Jitsi (EC2 + Elastic IP + Let's Encrypt, modules/jitsi) at jitsi_domain instead of borrowing the legacy server. It is the one part of this micro with an inbound security group and a public IP — the media is UDP/10000 and a Cloudflare Tunnel carries TCP — so it is also the one part that costs more than a few dollars: see COST.md. Turning it on also turns the rooms from public to token-gated, because the box gets the JWT module and the API's signing secret."
 }
 
+variable "jitsi_api_domain" {
+  type        = string
+  default     = ""
+  description = "Point the API — and so every consultation — at a DIFFERENT Jitsi than the one this stack runs, without tearing that one down: the legacy meet.midulabs.com while something is being sorted out. The box, its DNS and its certificate stay up and keep costing; only the API's env moves, so going back is one apply. Empty = the API uses jitsi_domain, which is the normal case. Whatever this names is treated as anonymous: the room credentials belong to OUR box and are NOT injected, so the API signs no token and joins a public room (which is what the legacy server expects — its own .env carries no JITSI_* at all)."
+}
+
 variable "jitsi_instance_type" {
   type        = string
   default     = "t4g.small"

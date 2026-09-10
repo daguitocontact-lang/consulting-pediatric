@@ -22,6 +22,14 @@ locals {
   jitsi_app_id   = var.jitsi_app_id != "" ? var.jitsi_app_id : (var.jitsi_self_hosted ? var.client_name : "")
   jitsi_secret   = var.jitsi_app_secret != "" ? var.jitsi_app_secret : (var.jitsi_self_hosted ? random_password.jitsi_app_secret[0].result : "")
   jitsi_ssm_name = "${local.ssm_api}/JITSI_APP_SECRET"
+
+  # Where the CONSULTATIONS go, which is not always where our box is. The
+  # secret still exists in SSM (the box reads it from there) — it just is not
+  # handed to the API, because credentials for our prosody mean nothing to
+  # somebody else's server, and a half-configuration is exactly what
+  # lib/jitsi.ts refuses to sign with.
+  jitsi_api_domain  = var.jitsi_api_domain != "" ? var.jitsi_api_domain : var.jitsi_domain
+  jitsi_api_secured = local.jitsi_secured && var.jitsi_api_domain == ""
 }
 
 # The room-signing secret, when nobody brought one. Generated rather than typed
@@ -192,8 +200,8 @@ module "ecs" {
     DAGUITO_API_BASE = var.daguito_api_base
     # The video room every consultation owns (src/lib/jitsi.ts). The panel is
     # handed the domain at runtime, so it is configured here and not in a build.
-    JITSI_DOMAIN = var.jitsi_domain
-    JITSI_APP_ID = local.jitsi_app_id
+    JITSI_DOMAIN = local.jitsi_api_domain
+    JITSI_APP_ID = local.jitsi_api_secured ? local.jitsi_app_id : ""
     # Where the panel is served from. The API needs it twice and both have to
     # agree (src/lib/panel-origin.ts): the patient's link is built from it and
     # the CORS allow-list is opened for it. Same value the r2_panel module
@@ -222,7 +230,7 @@ module "ecs" {
     var.daguito_webhook_secret == "" ? {} : {
       DAGUITO_WEBHOOK_SECRET = aws_ssm_parameter.daguito_webhook_secret[0].arn
     },
-    local.jitsi_secured ? {
+    local.jitsi_api_secured ? {
       JITSI_APP_SECRET = aws_ssm_parameter.jitsi_app_secret[0].arn
     } : {},
     var.daguito_stream_api_key == "" ? {} : {
