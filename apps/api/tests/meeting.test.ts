@@ -7,7 +7,7 @@
  */
 import { beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
-import { jwtVerify } from 'jose'
+import { decodeProtectedHeader, jwtVerify } from 'jose'
 import { consultationsModule } from '../src/consultations'
 import { endMeeting, getConsultation, startMeeting } from '../src/consultations/repos/consultations-repo'
 import { ORG, OTHER_ORG, auth, migrate, seedConsultation, truncate } from './helpers'
@@ -150,6 +150,14 @@ describe('the token', () => {
       new TextEncoder().encode('a-secret-at-least-32-bytes-long-xxxxx'),
       { audience: 'pediatric_app', issuer: 'pediatric_app' },
     )
+
+    // The HEADER, not just the payload. jitsi's luajwtjitsi refuses a token
+    // whose header has no `typ` ("Invalid typ") before it ever looks at the
+    // claims, and jose does not add one unless it is asked to. Measured against
+    // a real deployment: prosody accepted the connection, found no SASL result
+    // and dropped it, and the browser showed "Ha sido desconectado.
+    // Reconectando en 5 segundos" on a loop.
+    expect(decodeProtectedHeader(token)).toMatchObject({ alg: 'HS256', typ: 'JWT' })
 
     expect(payload.room).toBe('pediatric-room')
     expect(payload.sub).toBe('pediatric_app')

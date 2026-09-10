@@ -111,7 +111,12 @@ export async function signJitsiToken(room: string, user: JitsiUser): Promise<str
     },
     room,
   })
-    .setProtectedHeader({ alg: 'HS256' })
+    // `typ` is NOT optional here, whatever RFC 7519 says about it: jitsi's
+    // luajwtjitsi rejects the token outright with "Invalid typ" when the header
+    // lacks it (`if not header.typ or header.typ ~= "JWT"`), and jose does not
+    // add one on its own. The room then drops every joiner into a reconnect
+    // loop that reads as a network problem.
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuer(APP_ID)
     .setSubject(APP_ID)
     .setAudience(APP_ID)
