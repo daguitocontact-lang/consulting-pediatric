@@ -250,6 +250,40 @@ arrived" y nunca arranca. No existe `VITE_JITSI_DOMAIN`: el panel recibe dominio
 y token de la API en runtime (el bundle corre dentro de la página de Daguito y no
 se puede rebuildear para apuntar a otro Jitsi).
 
+**El cliente puede tener el suyo: `jitsi_self_hosted = true`** (`infra/terraform/modules/jitsi`).
+Levanta un EC2 `t4g.small` con Elastic IP y certificado de Let's Encrypt en las
+subredes **públicas** de Daguito, y le apunta `jitsi_domain`. Es la ÚNICA pieza
+del micro con security group de entrada y con IP pública, y no puede ser de otra
+forma: el media es **UDP/10000** y un Cloudflare Tunnel lleva TCP. También es la
+única que mueve la factura — el resto del stack son ~$18/mes y esta caja los
+vuelve a sumar (ver `COST.md`).
+
+Prenderla **cierra las salas**: la caja instala `jitsi-meet-tokens` y lee de SSM
+el mismo `JITSI_APP_SECRET` con el que firma la API, así que el nombre de sala
+deja de ser la llave y pasa a serlo el token. El secreto se **genera** en el
+apply — nadie lo escribe en `prod.tfvars` y nadie tiene que conocerlo.
+
+La caja no guarda nada: todo lo que sabe está en `user-data.sh`, así que una
+rota se **reemplaza** (`user_data_replace_on_change`) en vez de repararse, y la
+Elastic IP le sobrevive para que el DNS y el certificado sigan valiendo. Tres
+cosas que el quick-install de Jitsi no hace y ahí están: el **NAT harvester**
+(sin él ice4j ofrece solo la IP privada — la sala conecta y no viaja ni un
+paquete de audio, que es el modo más caro de fallar), la **espera** a que la
+Elastic IP y su DNS estén arriba antes de pedirle el certificado a Let's Encrypt
+(pedirlo antes quema uno de los cinco intentos semanales y deja el
+self-signed), y el **swap**, porque tres JVMs en 2 GB los mata el OOM killer a
+mitad de una consulta.
+
+Lo que NO hace: forzar el claim `moderator` del token. Eso pide meter
+`mod_token_moderation` en prosody y apagar `enable-auto-owner`, y un prosody que
+no puede cargar un módulo **no arranca** — en un boot desatendido eso es el
+servidor entero y no una bandera mal puesta. Queda como viene: manda quien entra
+primero, que en la práctica es el médico (abre la sala y después manda el link),
+y el token del papá ya lleva todas las features en false.
+
+`terraform apply` NO va en el horario del consultorio: cambiar el user_data
+reconstruye la instancia (~4 min sin salas).
+
 **El paciente tiene su propio canal, y su propia página.** `realtime-consultation`
 transcribe DOS canales: `s_stt_doctor` en `<session>:doctor` y `s_stt_patient` en
 `<session>:patient`. El navegador del médico alimenta el primero; el segundo lo
@@ -409,7 +443,8 @@ hashicorp/terraform:1.15 -c 'terraform init -backend=false && terraform validate
 - Nombres `{client}-{env}-*` (`pediatric-prod-db`, `pediatric-prod-api`, cluster `pediatric-prod`…).
 - `default_tags` en todo: `Project=daguito, Client=pediatric, Env=prod, ManagedBy=terraform`.
 - `aws_resourcegroups_group pediatric-prod` (tag `Client`) → todos los recursos del cliente juntos.
-- Cost Allocation Tag `Client` → costo por cliente en Billing. Costo ≈ **$18/mes** (ver `COST.md`).
+- Cost Allocation Tag `Client` → costo por cliente en Billing. Costo ≈ **$18/mes**, o
+  ≈ **$36** con Jitsi propio (ver `COST.md`).
 
 ## Reglas de código
 

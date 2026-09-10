@@ -12,3 +12,6 @@ infra/terraform/**/*.tfstate*
 infra/terraform/**/prod.tfvars
 .DS_Store
 graphify-out/
+
+# Saved plans carry the VALUES of every variable, prod.tfvars secrets included.
+*.tfplan

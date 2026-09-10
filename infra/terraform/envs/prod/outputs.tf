@@ -29,3 +29,20 @@ output "panel_url" {
 output "ci_deploy_role_arn" {
   value = module.github_oidc.role_arn
 }
+
+# Empty when the client borrows the legacy server (jitsi_self_hosted = false).
+output "jitsi_hostname" {
+  value = one(module.jitsi[*].hostname)
+}
+
+# The address the DNS record points at, and the one the videobridge advertises.
+# It outlives the box: rebuilding the instance does not change it.
+output "jitsi_public_ip" {
+  value = one(module.jitsi[*].public_ip)
+}
+
+# For `aws ssm start-session --target <id>` — the box has no SSH key and port 22
+# is open to the bastion only.
+output "jitsi_instance_id" {
+  value = one(module.jitsi[*].instance_id)
+}

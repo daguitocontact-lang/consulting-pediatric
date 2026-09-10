@@ -121,18 +121,42 @@ variable "github_repo_ids" {
 variable "jitsi_domain" {
   type        = string
   default     = "meet.midulabs.com"
-  description = "Jitsi server that hosts the consultation rooms. Defaults to the same self-hosted instance the legacy product uses. Do NOT leave it empty: the fallback is the public meet.jit.si, which now holds every joiner in a guest lobby (\"the conference has not yet started because no moderators have yet arrived\") because it only recognises 8x8 accounts as moderators — so the doctor cannot start their own room. It is also not a place for patient data."
+  description = "Jitsi server that hosts the consultation rooms. With jitsi_self_hosted this is the name THIS stack provisions and points at its own box, and it has to live in the daguito.com zone. Without it, the legacy product's server. Do NOT leave it empty either way: the fallback is the public meet.jit.si, which holds every joiner in a guest lobby (\"the conference has not yet started because no moderators have yet arrived\") because it only recognises 8x8 accounts as moderators — so the doctor cannot start their own room. It is also not a place for patient data."
+}
+
+variable "jitsi_self_hosted" {
+  type        = bool
+  default     = false
+  description = "Run the client's own Jitsi (EC2 + Elastic IP + Let's Encrypt, modules/jitsi) at jitsi_domain instead of borrowing the legacy server. It is the one part of this micro with an inbound security group and a public IP — the media is UDP/10000 and a Cloudflare Tunnel carries TCP — so it is also the one part that costs more than a few dollars: see COST.md. Turning it on also turns the rooms from public to token-gated, because the box gets the JWT module and the API's signing secret."
+}
+
+variable "jitsi_instance_type" {
+  type        = string
+  default     = "t4g.small"
+  description = "Graviton. Jitsi forwards media rather than transcoding it, so this is mostly a RAM decision: t4g.small (2 GB + the swap file user_data adds) carries a few concurrent consultations; go t4g.medium when they start overlapping four or five deep."
+}
+
+variable "jitsi_letsencrypt_email" {
+  type        = string
+  default     = ""
+  description = "Where Let's Encrypt sends expiry warnings for jitsi_domain. Required when jitsi_self_hosted: without a real certificate the panel cannot load external_api.js from the box at all."
+}
+
+variable "jitsi_video_height" {
+  type        = number
+  default     = 720
+  description = "Capture resolution cap on the self-hosted box. The egress lever: a two-person consultation goes peer-to-peer and never touches the server, but the calls that fall back to the relay cost ~$0.14/hour at 720p and about a third of that at 360p. 720 because the paediatrician is LOOKING at the child."
 }
 
 variable "jitsi_app_id" {
   type        = string
   default     = ""
-  description = "App id the Jitsi JWT module (prosody token_verification) expects as iss/sub/aud. Empty, together with the secret, means the rooms are PUBLIC: anyone with the room name may join. Not a secret itself."
+  description = "App id the Jitsi JWT module (prosody token_verification) expects as iss/sub/aud. Empty defaults to client_name when jitsi_self_hosted, and otherwise means the rooms are PUBLIC: anyone with the room name may join. Not a secret itself."
 }
 
 variable "jitsi_app_secret" {
   type        = string
   default     = ""
   sensitive   = true
-  description = "HS256 secret the room tokens are signed with. Stored as an SSM SecureString. Empty = public rooms; the API still serves, because this guards a video room and not the client's records."
+  description = "HS256 secret the room tokens are signed with. Stored as an SSM SecureString. Empty = public rooms — except with jitsi_self_hosted, where one is generated and never has to be typed by a human: the API reads it from SSM to sign and the box reads the same parameter to verify."
 }

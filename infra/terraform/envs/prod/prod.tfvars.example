@@ -41,6 +41,21 @@ jitsi_domain     = "meet.midulabs.com"
 jitsi_app_id     = ""
 jitsi_app_secret = ""
 
+# The client's OWN Jitsi instead of the legacy one: an EC2 t4g.small with an
+# Elastic IP and a Let's Encrypt certificate, provisioned by modules/jitsi. It
+# is the only inbound-facing resource in this stack (the media is UDP/10000 and
+# a tunnel cannot carry it), and the only one that moves the bill — read COST.md
+# before turning it on. Turning it on also closes the rooms: the box gets the
+# JWT module and a generated signing secret, so a room name stops being enough.
+#
+#   jitsi_self_hosted       = true
+#   jitsi_domain            = "pediatric-meet.daguito.com" # in the daguito.com zone; the module creates the record
+#   jitsi_letsencrypt_email = "REPLACE_ME"                 # required: expiry warnings, and the installer prompts for it
+#   jitsi_app_id            = ""                           # empty = client_name
+#   jitsi_app_secret        = ""                           # empty = generated, and nobody has to know it
+#   jitsi_instance_type     = "t4g.small"                  # t4g.medium once consultations overlap 4-5 deep
+#   jitsi_video_height      = 720                          # 360 cuts the relayed egress to a third
+
 # The only browser origin that may load the panel and call the API (CORS).
 daguito_web_origin = "https://app.daguito.com"
 
