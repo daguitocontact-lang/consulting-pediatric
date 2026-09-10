@@ -163,6 +163,44 @@ resource "aws_security_group_rule" "media" {
   description       = "Videobridge RTP/UDP"
 }
 
+# ── TURN ─────────────────────────────────────────────────────────────
+# The fallback path for the media, and leaving it shut is the most expensive
+# kind of mistake this deployment can make: everything LOOKS right — the room
+# opens, the token verifies, the participant list fills in — and not one packet
+# of audio or video moves, because the only way in was UDP/10000 and this
+# network does not let UDP out. A hospital's wifi, a corporate laptop and some
+# mobile carriers all do exactly that.
+#
+# These are not a guess: prosody's `external_services` hands the browser these
+# three, by name and port, and every one of them has to be reachable or the
+# browser is being told to use a door that is bricked up.
+#
+#   stun:  <domain>:3478            udp
+#   turn:  <domain>:3478?transport=udp
+#   turns: <domain>:5349?transport=tcp   ← the one that saves the hard networks
+#
+# (coturn is built with `no-tcp`, so 3478 is UDP only and there is no point in
+# opening its TCP twin.)
+resource "aws_security_group_rule" "turn_udp" {
+  type              = "ingress"
+  from_port         = 3478
+  to_port           = 3478
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.this.id
+  description       = "STUN/TURN over UDP"
+}
+
+resource "aws_security_group_rule" "turns_tcp" {
+  type              = "ingress"
+  from_port         = 5349
+  to_port           = 5349
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.this.id
+  description       = "TURN over TLS: the fallback when UDP is blocked"
+}
+
 resource "aws_security_group_rule" "ssh_from_bastion" {
   type                     = "ingress"
   from_port                = 22
