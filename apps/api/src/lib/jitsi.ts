@@ -2,13 +2,30 @@
  * Jitsi meeting credentials.
  *
  * The room lives on the Jitsi server, not here: what this API does is name the
- * room and sign the short-lived JWT that lets a doctor in as moderator. Same
- * shape as the legacy app's `security/jitsi.go`, which is what the deployed
- * Jitsi (`prosody`, `token_verification`) already accepts:
+ * room and sign the short-lived JWT that lets a doctor in as moderator:
  *
- *   iss = sub = aud = JITSI_APP_ID, `room`, `context.user`, `context.features`
+ *   iss = aud = JITSI_APP_ID, sub = JITSI_DOMAIN, `room`, `context.user`,
+ *   `context.features`
  *
  * signed HS256 with JITSI_APP_SECRET.
+ *
+ * `sub` is the SERVER and not the app id — the one place this differs from the
+ * legacy's `security/jitsi.go`, and it is not cosmetic. Prosody rebuilds the
+ * room's address out of that claim (`token/util.lib.lua`, `verify_room`):
+ *
+ *   subdomain_to_check = muc_domain_prefix .. "." .. sub   -- "conference." .. sub
+ *   return room_address == jid.join(room_from_token, subdomain_to_check)
+ *
+ * so `sub = "pediatric"` asks for a room in `conference.pediatric` while the
+ * real one lives in `conference.pediatric-meet.daguito.com`, and EVERY joiner
+ * is refused — prosody logs `Room and token mismatched` and the browser says
+ * "Sorry, you're not allowed to join this call", which names neither the claim
+ * nor the room. The legacy's server takes its app id only because
+ * `enable_domain_verification` is off there; in this module the default is TRUE
+ * (util.lib.lua:104), so a freshly installed `jitsi-meet-tokens` checks it. The
+ * domain is right on both: where the check is off, nothing reads `sub` at all.
+ * Verified against the client's own box on 2026-09-10 — same room, same secret,
+ * `sub = the domain` joins as moderator and `sub = the app id` is refused.
  *
  * NOT fail-closed, on purpose, and this is the one place in the API where that
  * is true by design rather than by accident: with no credentials configured the
@@ -118,7 +135,7 @@ export async function signJitsiToken(room: string, user: JitsiUser): Promise<str
     // loop that reads as a network problem.
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuer(APP_ID)
-    .setSubject(APP_ID)
+    .setSubject(JITSI_DOMAIN)
     .setAudience(APP_ID)
     .setIssuedAt()
     .setNotBefore('0s')

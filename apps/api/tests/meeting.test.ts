@@ -160,7 +160,11 @@ describe('the token', () => {
     expect(decodeProtectedHeader(token)).toMatchObject({ alg: 'HS256', typ: 'JWT' })
 
     expect(payload.room).toBe('pediatric-room')
-    expect(payload.sub).toBe('pediatric_app')
+    // `sub` is the SERVER, not the app id: prosody rebuilds the room address as
+    // `conference.<sub>` and compares it with the real one, so an app id here
+    // refuses every joiner with "Room and token mismatched". Measured against
+    // the client's own box, 2026-09-10.
+    expect(payload.sub).toBe('meet.pediatric.example')
     expect(payload.exp).toBeGreaterThan(Math.floor(Date.now() / 1000))
     const context = payload.context as {
       user: { name: string; moderator: boolean }
