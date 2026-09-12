@@ -61,6 +61,14 @@ const TOKEN_TTL_SECONDS = 6 * 60 * 60
  * legacy backend does it. `flowForMode` returning null is what makes the token
  * route refuse instead of handing out a credential for a flow that cannot use
  * it.
+ *
+ * These slugs are the LEGACY's, and they are what prod resolves today.
+ * `src/flows` now also carries byte-identical COPIES of the three graphs under
+ * `pediatric-*`, so this custom can own its engine: switching over is these two
+ * literals plus `PRERECORDED_FLOW` below and `CHATBOT_FLOW` in
+ * `lib/daguito-chat.ts` — and only AFTER `bun scripts/flows/sync.ts --apply` has
+ * published them. A slug that is not published does not resolve, and every
+ * recording fails at the token route.
  */
 const LIVE_FLOW_BY_MODE: Record<string, string> = {
   video: 'realtime-consultation',

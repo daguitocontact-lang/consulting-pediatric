@@ -24,7 +24,8 @@ import {
   type NavSectionId,
   type PanelPage,
 } from './manifest'
-import { SESSION_EXPIRED, type MountProps } from './lib/api'
+import { SESSION_EXPIRED, type MountProps, type SessionExpiredDetail } from './lib/api'
+import type { RenewalFailure } from './lib/session'
 import { adoptToken } from './lib/session'
 import { writeSection } from './lib/route'
 import { translator } from './lib/i18n'
@@ -188,22 +189,35 @@ function Panel(props: MountProps) {
  * The panel's token lasts five minutes and Daguito mints it once per host load
  * (`signCustomPanelToken({ ttlS: 300 })`, `useCustomPanel`), so `lib/session.ts`
  * renews it on the panel's own — silently, before each call and again after a
- * 401. This banner is what is left when the RENEWAL fails, which means the
- * user's Daguito session itself ended: no token this panel can mint will help,
- * and reloading the host is the cure.
+ * 401. This banner is what is left when the RENEWAL fails.
+ *
+ * It says WHICH failure, because the two need different things from the doctor
+ * and for a long time this band said the wrong one to both. When Daguito
+ * refused to mint (401/403) the session it authenticates with is gone — that
+ * response even clears its own cookies — so reloading only lands on the login
+ * screen, and the band may as well say so. Anything else (offline, a proxy, a
+ * token that was minted and still refused) may be over by the next click, and
+ * there "Recargar" is exactly right.
  *
  * Said once, at the top, rather than as a red line on every page about a
  * session nobody knew had a clock.
  */
-function SessionGuard({ children }: { children: React.ReactNode }) {
-  const [expired, setExpired] = useState(false)
+function SessionGuard({ locale, children }: { locale?: string; children: React.ReactNode }) {
+  const [reason, setReason] = useState<RenewalFailure | null | undefined>(undefined)
+  const { t } = translator(locale)
   useEffect(() => {
-    const onExpired = () => setExpired(true)
+    const onExpired = (event: Event) => {
+      const detail = (event as CustomEvent<SessionExpiredDetail>).detail
+      setReason(detail?.reason ?? null)
+    }
     window.addEventListener(SESSION_EXPIRED, onExpired)
     return () => window.removeEventListener(SESSION_EXPIRED, onExpired)
   }, [])
 
-  if (!expired) return <>{children}</>
+  // `undefined` is "no 401 yet"; `null` is a 401 whose renewal did not fail —
+  // rare, and it reads as the generic case.
+  if (reason === undefined) return <>{children}</>
+  const ended = reason === 'session'
   return (
     <YStack flex={1}>
       <XStack
@@ -216,7 +230,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
         flexWrap="wrap"
       >
         <Text fontSize={13} color="$warning700">
-          La sesión del panel venció. Recarga para seguir.
+          {ended ? t('session.ended') : t('session.stale')}
         </Text>
         <Text
           fontSize={13}
@@ -226,7 +240,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
           cursor="pointer"
           onPress={() => window.location.reload()}
         >
-          Recargar
+          {ended ? t('session.ended.action') : t('session.stale.action')}
         </Text>
       </XStack>
       {children}
@@ -443,7 +457,7 @@ export function mount(el: HTMLElement, props: MountProps): void {
       <PanelErrorBoundary>
         {/* Above the page, so any page can report what a write did. */}
         <ToastProvider>
-          <SessionGuard>
+          <SessionGuard locale={props.locale}>
             {/* Keyed by the id the host asked for: a new route seeds a new tab,
                 while a re-render with the same one keeps the open section. */}
             <Panel key={props.pageId} {...props} />

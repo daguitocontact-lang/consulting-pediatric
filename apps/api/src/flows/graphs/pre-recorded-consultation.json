@@ -1,0 +1,82 @@
+{
+  "coalesce_enabled": false,
+  "edges": [
+    {
+      "id": "e1",
+      "source": "trigger",
+      "target": "s_stt_file"
+    },
+    {
+      "id": "e2",
+      "source": "s_stt_file",
+      "target": "c_soap"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "trigger",
+      "kind": "trigger",
+      "type": "trigger",
+      "config": {
+        "step_type": "trigger"
+      }
+    },
+    {
+      "id": "s_stt_file",
+      "type": "action",
+      "config": {
+        "label": "Transcribe file (AssemblyAI · diarización + roles)",
+        "provider": "assemblyai",
+        "model": "universal",
+        "language": "es",
+        "mime_type": "audio/mpeg",
+        "step_type": "a_transcribe_file",
+        "memory_key": "transcript",
+        "output_field": "transcript",
+        "audio_url_field": "audio_url",
+        "audio_base64_field": "audio_base64",
+        "diarize": true,
+        "max_speakers": 2,
+        "speaker_roles": {
+          "roles": [
+            "doctor",
+            "paciente"
+          ],
+          "criteria": "El DOCTOR hace preguntas clínicas, indica exámenes, da instrucciones y explica diagnósticos. El PACIENTE describe síntomas, responde preguntas sobre su historia, hábitos y medicación, y suele hablar en primera persona sobre su cuerpo o malestar.",
+          "model": "openai/gpt-oss-120b:nitro",
+          "provider": "openrouter",
+          "min_confidence": 0.8
+        }
+      }
+    },
+    {
+      "id": "c_soap",
+      "type": "agent",
+      "config": {
+        "mode": "streaming",
+        "label": "Fill selected template",
+        "model": "deepseek/deepseek-v4-flash",
+        "model_override": {
+          "from_input": "model"
+        },
+        "prompt": "You are a medical scribe. Read the full consultation transcript (doctor + patient) and fill EVERY schema field with what was explicitly or implicitly mentioned. Be clinical and concise, in Spanish.\n\nThe doctor's own template is shown below — use it ONLY to understand the CONTEXT around each placeholder (the section headings, labels and surrounding text). Each schema field maps to a `[[…]]` placeholder in this template; the surrounding text tells you what the field is really about (e.g. a placeholder under a 'Plan' heading is about treatment even if its description is short, a placeholder right after 'Motivo:' is the chief complaint, etc).\n\n=== Doctor template (for context only — DO NOT copy its HTML/markdown into your answers) ===\n{{template_body}}\n=== End template ===\n\n**OUTPUT FORMAT — CRITICAL**\n\nEach extracted value MUST be PLAIN TEXT only. Do NOT include any HTML tags, markdown formatting, or template structure in the values:\n\n- NO `<h1>`, `<h2>`, `<h3>`, `<p>`, `<strong>`, `<em>`, `<br>`, `<ul>`, `<li>` or any other HTML tags.\n- NO markdown `**bold**`, `## headings`, `- bullets`, `|tables|`.\n- NO labels like `**Motivo:**` or `Antecedentes médicos:` — those labels belong to the template's fixed text, NOT to the extracted value.\n- NO section dividers (═, ───, ###).\n\nJust the clean clinical content as a regular sentence or short paragraph. The template's surrounding text already provides the heading and labels; your job is only to fill the BLANK with the patient's data.\n\nWRONG (do NOT do this):\n  motivo_consulta = '<h2>Motivo</h2> <p><strong>Motivo:</strong> Cansancio excesivo</p>'\nCORRECT:\n  motivo_consulta = 'Cansancio excesivo, estrés laboral y dolor de espalda crónico.'\n\nWRONG:\n  antecedentes_medicos = '**Antecedentes médicos:** Artrosis de columna (diagnosticada este año)'\nCORRECT:\n  antecedentes_medicos = 'Artrosis de columna, diagnosticada este año.'\n\nRules: (1) Extract what the patient or doctor said about symptoms, history, habits, medications, occupation, physical exam, plan, etc., even when informal — interpret clinically. e.g. 'estoy muy cansado por mi trabajo de mecánico' → motivo_consulta='Cansancio progresivo' + actividad_laboral='Mecánico'. (2) Write 'No referido' ONLY when the transcript truly does not mention anything for that field. (3) Do not invent facts. (4) Return ALL fields in one tool call.",
+        "provider": "openrouter",
+        "step_type": "collect_data",
+        "streaming": {
+          "schema": [
+            {
+              "name": "markdown",
+              "type": "text",
+              "description": "Complete consultation note as Markdown (standard SOAP). Only used when no template_schema was provided."
+            }
+          ],
+          "source_field": "transcript",
+          "min_chars_delta": 1,
+          "min_interval_ms": 0,
+          "use_template_schema": true,
+          "read_from_memory_only": true
+        }
+      }
+    }
+  ]
+}

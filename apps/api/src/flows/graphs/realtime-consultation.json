@@ -1,0 +1,212 @@
+{
+  "coalesce_enabled": false,
+  "edges": [
+    {
+      "id": "e_trig_doctor",
+      "source": "trigger",
+      "target": "s_stt_doctor"
+    },
+    {
+      "id": "e_trig_patient",
+      "source": "trigger",
+      "target": "s_stt_patient"
+    },
+    {
+      "id": "e_doctor_w_counter",
+      "source": "s_stt_doctor",
+      "target": "w_counter"
+    },
+    {
+      "id": "e_patient_w_counter",
+      "source": "s_stt_patient",
+      "target": "w_counter"
+    },
+    {
+      "id": "e3",
+      "source": "w_counter",
+      "target": "c_facts",
+      "sourceHandle": "reached"
+    },
+    {
+      "id": "e4",
+      "source": "c_facts",
+      "target": "cond_new_facts",
+      "sourceHandle": "collecting"
+    },
+    {
+      "id": "e5",
+      "source": "cond_new_facts",
+      "target": "c_soap",
+      "sourceHandle": "new_facts"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "trigger",
+      "kind": "trigger",
+      "type": "trigger",
+      "config": {
+        "step_type": "trigger"
+      }
+    },
+    {
+      "id": "w_counter",
+      "type": "decision",
+      "config": {
+        "label": "Every 20 words",
+        "step_type": "word_counter",
+        "threshold": 20,
+        "memory_key": "words_accumulated",
+        "text_field": "transcript",
+        "output_field": "transcript",
+        "reset_on_fire": true,
+        "branch_when_below": "below",
+        "branch_when_reached": "reached",
+        "accumulate_text_memory_key": "transcript_window"
+      }
+    },
+    {
+      "id": "c_facts",
+      "type": "agent",
+      "config": {
+        "mode": "streaming",
+        "label": "Facts + Recomendaciones",
+        "model": "deepseek/deepseek-v4-flash",
+        "model_override": {
+          "from_input": "model"
+        },
+        "prompt": "You are a clinical copilot assisting a doctor during a live consultation, in Spanish.\n\nFACTS (sintomas, antecedentes, observaciones_clinicas): extract STRICTLY from what was actually said — never invent these. The lists are CUMULATIVE: keep every fact already captured and only ADD new ones as the conversation grows; never drop or shrink a list across updates.\n\nSUGGESTIONS — four CUMULATIVE lists, each capped at 5 items. Keep every prior item and ADD only genuinely new, high-value ones grounded in this patient's transcript. Quality over quantity: NEVER pad to reach a number — add an item only when it earns its place (early in the consult a list may have just 1-2 items, that is fine). All in Spanish, one short actionable line per item, SPECIFIC to this transcript (never generic). Two hard anti-repetition rules: (1) never re-emit an item already in a list, even reworded or about the same clinical point; (2) never suggest a pregunta already asked or answered anywhere in the transcript — if the answer is already there it is redundant even reworded, so pick a different clinical gap.\n\n- preguntas (up to 5): direct clinical follow-up questions for the doctor to ask, ending with '?'. Target ALICIA/OPQRST gaps, pertinent negatives, red flags. Example: '¿El dolor se irradia a la mandíbula o brazo izquierdo?'.\n- posibles_diagnosticos (up to 5): differential diagnoses based on current evidence (NOT the obvious one). Format: '[Diagnóstico]: [1-line clinical justification from the transcript].'.\n- tratamientos (up to 5): evidence-based intervention (drug + dose + frequency + route, or procedural, or supportive). Must be safe given allergies/history in transcript.\n- recomendaciones_generales (up to 5): follow-up, lifestyle, alarm signs, or patient education actionable in the next visit.\n\nIf the transcript is too thin for a category, leave that list shorter (or empty) rather than padding — a smaller set of strong, non-repeated items is the goal, growing to at most 5 per list as the conversation provides material.",
+        "provider": "openrouter",
+        "step_type": "collect_data",
+        "streaming": {
+          "schema": [
+            {
+              "name": "sintomas",
+              "type": "text_list",
+              "description": "CUMULATIVE list of patient-reported symptoms (cansancio, dolor, etc.) said so far. Keep prior items, only add new."
+            },
+            {
+              "name": "antecedentes",
+              "type": "text_list",
+              "description": "CUMULATIVE relevant medical / occupational / family history. Keep prior items, only add new."
+            },
+            {
+              "name": "observaciones_clinicas",
+              "type": "text_list",
+              "description": "CUMULATIVE clinically relevant observations (signs, mood, posture). Keep prior items, only add new."
+            },
+            {
+              "name": "preguntas",
+              "type": "text_list",
+              "description": "Up to 5 clinical follow-up questions in Spanish ending with '?'. Specific (target ALICIA/OPQRST gaps, pertinent negatives, red flags). CUMULATIVE — keep prior items, only ADD genuinely new ones; never repeat (not even reworded), and never a question already asked or answered in the transcript."
+            },
+            {
+              "name": "posibles_diagnosticos",
+              "type": "text_list",
+              "description": "Up to 5 differential diagnoses in Spanish (NOT the obvious one). Format '[Diagnóstico]: [1-line justification from transcript].'. CUMULATIVE — keep prior items, only add new, never repeat."
+            },
+            {
+              "name": "tratamientos",
+              "type": "text_list",
+              "description": "Up to 5 evidence-based interventions in Spanish (drug+dose+freq+route, procedure, or supportive). Safe given allergies/history. CUMULATIVE — keep prior items, only add new, never repeat."
+            },
+            {
+              "name": "recomendaciones_generales",
+              "type": "text_list",
+              "description": "Up to 5 actionable general recommendations in Spanish (follow-up, lifestyle, alarm sign, patient education). CUMULATIVE — keep prior items, only add new, never repeat."
+            }
+          ],
+          "source_field": "transcript",
+          "min_chars_delta": 20,
+          "min_interval_ms": 0
+        }
+      }
+    },
+    {
+      "id": "cond_new_facts",
+      "type": "decision",
+      "config": {
+        "label": "New facts?",
+        "clauses": [
+          {
+            "op": "gt",
+            "left": "change_count",
+            "right": 0,
+            "branch": "new_facts"
+          }
+        ],
+        "step_type": "condition",
+        "default_branch": "no_new_facts"
+      }
+    },
+    {
+      "id": "c_soap",
+      "type": "agent",
+      "config": {
+        "mode": "streaming",
+        "label": "SOAP template fill",
+        "model": "deepseek/deepseek-v4-flash",
+        "model_override": {
+          "from_input": "model"
+        },
+        "prompt": "You are a medical scribe producing the consultation note in Spanish, PROGRESSIVELY, during a live consultation.\nReturn ONE field `markdown`: the complete clinical note as Markdown.\n\n=== Doctor's selected template (empty means none) ===\n{{template_body}}\n=== End template ===\n\nIf a template is shown above, your output is the template REPRODUCED VERBATIM — every heading, label, fixed text and blank line EXACTLY as written, in the same order — with ONLY the `[[...]]` placeholders replaced: substitute each one, inline on the same line as its surrounding text, with the content extracted from the transcript for that field, or 'No referido' if the transcript has not covered it yet. Never output the `[[...]]` marks, never move a label to its own line, never add, remove or resize headings, never reword the template's fixed text.\nIf the template block is EMPTY, write a standard SOAP note with `## (S) Subjetivo`, `## (O) Objetivo`, `## (A) Análisis`, `## (P) Plan` headings and a blank line between paragraphs.\nThe transcript GROWS over time: on each update REVISE and EXPAND the note with everything known so far. Never shrink or blank a section that already had content — only refine and add detail. Reason clinically (impression, not definitive Dx). Be concise. Output ONLY the Markdown note in the `markdown` field — no JSON, no commentary.",
+        "provider": "openrouter",
+        "step_type": "collect_data",
+        "streaming": {
+          "schema": [
+            {
+              "name": "markdown",
+              "type": "text",
+              "description": "The COMPLETE consultation note as Markdown, following the doctor's selected template structure (or standard SOAP if none). PROGRESSIVE: expand/refine each update, never blank or shorten content already written."
+            }
+          ],
+          "source_field": "transcript",
+          "min_chars_delta": 1,
+          "min_interval_ms": 4000,
+          "use_template_schema": true,
+          "read_from_memory_only": true
+        }
+      }
+    },
+    {
+      "id": "s_stt_doctor",
+      "type": "action",
+      "config": {
+        "mode": "spawn",
+        "codec": "pcm16",
+        "label": "Transcribe Doctor (AssemblyAI)",
+        "language": "es",
+        "provider": "assemblyai-realtime",
+        "step_type": "a_transcribe_stream",
+        "memory_key": "transcript",
+        "timeout_ms": 600000,
+        "sample_rate": 16000,
+        "output_field": "transcript",
+        "speaker_role": "doctor",
+        "emit_partials": true,
+        "spawn_per_final": true,
+        "audio_session_suffix": "doctor"
+      }
+    },
+    {
+      "id": "s_stt_patient",
+      "type": "action",
+      "config": {
+        "mode": "spawn",
+        "codec": "pcm16",
+        "label": "Transcribe Paciente (AssemblyAI)",
+        "language": "es",
+        "provider": "assemblyai-realtime",
+        "step_type": "a_transcribe_stream",
+        "memory_key": "transcript",
+        "timeout_ms": 600000,
+        "sample_rate": 16000,
+        "output_field": "transcript",
+        "speaker_role": "patient",
+        "emit_partials": true,
+        "spawn_per_final": true,
+        "audio_session_suffix": "patient"
+      }
+    }
+  ]
+}

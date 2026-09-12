@@ -26,6 +26,11 @@ import {
   isStreamConfigured,
 } from './daguito-stream'
 
+/**
+ * The legacy's slug, which is what prod resolves. Its copy under our own slug
+ * (`pediatric-consultation-chatbot`, same prompt, same numbers) lives in
+ * `src/flows`; see the note in `lib/daguito-stream.ts` for what switching costs.
+ */
 const CHATBOT_FLOW = 'consultation-chatbot'
 
 /** A turn that runs longer than this is not going to answer usefully. */

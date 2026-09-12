@@ -25,6 +25,27 @@ let orgId = ''
 /** One renewal at a time: five parallel calls must not mint five tokens. */
 let renewal: Promise<string | null> | null = null
 
+/**
+ * Why the last renewal failed, when one did.
+ *
+ *   * `session` — Daguito refused to mint (401/403). The user's session THERE
+ *     is over, and nothing this panel does will bring it back: the endpoint
+ *     answers that 401 with `sb_access=; Max-Age=0`, so it has already cleared
+ *     the cookies it authenticates with. Only a new login helps.
+ *   * `unavailable` — the request never got an answer (offline, DNS, a proxy).
+ *     The session may well be fine and the next call may work.
+ *
+ * The banner reads this to say which of the two happened instead of blaming a
+ * session that never expired.
+ */
+export type RenewalFailure = 'session' | 'unavailable'
+let failure: RenewalFailure | null = null
+
+/** What killed the last renewal, or null while nothing has. */
+export function renewalFailure(): RenewalFailure | null {
+  return failure
+}
+
 /** `exp` in ms, or 0 when the token is unreadable — which counts as expired. */
 function expiry(jwt: string): number {
   const payload = jwt.split('.')[1]
@@ -59,21 +80,26 @@ export function currentToken(fallback: string): string {
 /**
  * Where Daguito's API lives, derived from the page the panel is running in.
  *
- * The same rule Daguito's own `resolveApiUrl` uses: `app.daguito.com` →
- * `api.daguito.com`, `app-dev2…` → `api-dev2…`, localhost → :4001. An
- * unrecognised host returns null instead of guessing: a wrong host is a CORS
- * error on every renewal, and the panel is better off saying the session ended.
- * (A developer running Daguito's web with a VITE_API_URL override lands here;
- * dev tokens last twelve hours, so nothing has to be renewed anyway.)
+ * Daguito's own `resolveApiUrl` (apps/web/src/lib/api.ts), rule for rule:
+ * `app.daguito.com` → `api.daguito.com`, `app-dev2…` → `api-dev2…`, localhost →
+ * :4001 — and, like it, an unrecognised host falls back to PROD instead of
+ * giving up. The fallback is not a guess about the host, it is the same guess
+ * the page around us already made: a panel is only ever loaded by a Daguito
+ * that resolved its own API this way, so following it is right far more often
+ * than refusing.
+ *
+ * Returning null here (what this did before) made the one failure that has no
+ * symptom: no request, no console error, and five minutes later a "session
+ * expired" band on a session that was perfectly alive.
  */
-function daguitoApi(): string | null {
-  if (typeof window === 'undefined') return null
+function daguitoApi(): string {
+  if (typeof window === 'undefined') return 'https://api.daguito.com'
   const { protocol, hostname } = window.location
   if (hostname === 'localhost' || hostname === '127.0.0.1') return 'http://localhost:4001'
   if (/^app(-[a-z0-9]+)?\.daguito\.com$/i.test(hostname)) {
     return `${protocol}//${hostname.replace(/^app/, 'api')}`
   }
-  return null
+  return 'https://api.daguito.com'
 }
 
 /**
@@ -91,23 +117,46 @@ function daguitoApi(): string | null {
  * the Daguito session stays the host's.
  */
 async function mint(): Promise<string | null> {
-  const base = daguitoApi()
-  if (!base || !orgId) return null
+  if (!orgId) {
+    // The host mounts us with the org it minted the token for; without it there
+    // is no endpoint to ask. Not a session problem — say so.
+    failure = 'unavailable'
+    return null
+  }
   try {
     const res = await fetch(
-      `${base}/organizations/${encodeURIComponent(orgId)}/custom-panel/token`,
+      `${daguitoApi()}/organizations/${encodeURIComponent(orgId)}/custom-panel/token`,
       { credentials: 'include' },
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      // 401: no live Daguito session. 403: this user may no longer open the
+      // panel (the org's `allowed_user_ids`). Both are answers, not outages,
+      // and both are final until somebody logs in again.
+      failure = res.status === 401 || res.status === 403 ? 'session' : 'unavailable'
+      return null
+    }
     const body = (await res.json()) as { token?: string }
-    return typeof body.token === 'string' && body.token ? body.token : null
+    const next = typeof body.token === 'string' && body.token ? body.token : null
+    failure = next ? null : 'unavailable'
+    return next
   } catch {
+    failure = 'unavailable'
     return null
   }
 }
 
-/** Renew now, sharing one request with whoever else asked while it was open. */
+/**
+ * Renew now, sharing one request with whoever else asked while it was open.
+ *
+ * A `session` failure STOPS the renewals. Every call in flight retries on its
+ * own 401, so a panel with five pages open answers a dead session with five
+ * more requests, and each of those 401s makes Daguito re-clear the auth cookies
+ * — hammering the one endpoint that could still say yes if the user logs in in
+ * another tab. One `no` is enough; the banner takes it from here, and a reload
+ * starts the panel over with a fresh mint from the host.
+ */
 export function renew(): Promise<string | null> {
+  if (failure === 'session') return Promise.resolve(null)
   if (!renewal) {
     renewal = mint().then((next) => {
       if (next) token = next

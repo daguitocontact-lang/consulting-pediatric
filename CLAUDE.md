@@ -204,6 +204,22 @@ que publica el producto legacy (midulabs) y en **la misma cuenta**:
 | `in_person` | `in-person-consultation` | mic del navegador → `<session>:doctor`, con diarización |
 | `transcription` | `pre-recorded-consultation` | **archivo subido**, corrido por la API |
 
+**Y este repo tiene una COPIA de los cuatro** (los tres de arriba +
+`consultation-chatbot`) en `apps/api/src/flows/` — los grafos tal cual en
+`graphs/*.json`, el prompt del asistente en `src/prompts/consultation-chatbot.md`
+— bajo slugs `pediatric-*` propios. El slug es lo que se posee: los dos
+productos publican en la MISMA cuenta, así que sincronizar el slug del legacy
+desde acá le pisaría el motor a una consulta que está corriendo ahora mismo. Con
+la copia, cambiarle el prompt o el modelo a este cliente no toca nada del legacy.
+
+Copiarlos NO cambia el motor: en runtime se siguen resolviendo los slugs del
+legacy (`lib/daguito-stream.ts`, `lib/daguito-chat.ts`), que es lo que hay en
+prod. Pasarse son cuatro constantes ahí, y **después** de
+`bun scripts/flows/sync.ts --apply` — un slug sin publicar no resuelve y se cae
+toda grabación. El sync postea con `fetch` y no con `@daguito/sdk` a propósito:
+la 0.3.15 deja afuera `coalesce_enabled` en los dos endpoints, y ese flag en
+`false` es lo que hace que el audio entrante no pase por el debounce.
+
 **`transcription` NO se transmite.** Su grafo tiene un solo nodo `s_stt_file`
 que lee `audio_url` / `audio_base64` — no hay `a_transcribe_stream`, así que
 mandarle micrófono abre un socket que nadie escucha y graba una hora de nada.

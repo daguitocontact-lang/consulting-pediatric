@@ -23,6 +23,13 @@ const es = {
   'common.error.forbidden': 'Esta organización no tiene acceso a este panel.',
   'common.error.unexpected': 'Error inesperado',
 
+  // La banda de arriba (SessionGuard en entry.tsx). Dos textos porque son dos
+  // cosas distintas: una se arregla recargando y la otra no.
+  'session.stale': 'La sesión del panel venció. Recarga para seguir.',
+  'session.stale.action': 'Recargar',
+  'session.ended': 'Tu sesión de Daguito terminó. Inicia sesión otra vez para seguir.',
+  'session.ended.action': 'Iniciar sesión',
+
   // Copy of the shared create/edit dialog (components/CreateForm.tsx).
   'form.save': 'Guardar',
   'form.cancel': 'Cancelar',
@@ -275,6 +282,11 @@ const en: Record<Key, string> = {
   'common.error.session': 'Session expired. Reload the panel.',
   'common.error.forbidden': 'This organization has no access to this panel.',
   'common.error.unexpected': 'Unexpected error',
+
+  'session.stale': 'The panel session expired. Reload to continue.',
+  'session.stale.action': 'Reload',
+  'session.ended': 'Your Daguito session ended. Sign in again to continue.',
+  'session.ended.action': 'Sign in',
 
   'form.save': 'Save',
   'form.cancel': 'Cancel',

@@ -6,7 +6,7 @@
 // decided by the token, never by the caller.
 import type { Translator } from './i18n'
 import type { ThemeMode } from './host-theme'
-import { freshToken, renew } from './session'
+import { freshToken, renew, renewalFailure, type RenewalFailure } from './session'
 
 export type MountProps = {
   token: string
@@ -21,6 +21,16 @@ export type MountProps = {
 
 /** Fired on the window the first time a call comes back 401. */
 export const SESSION_EXPIRED = 'pediatric:session-expired'
+
+/**
+ * What rode along with that event: why the renewal could not save the call.
+ *
+ * `session` is the only one that means what the banner used to say for all of
+ * them — the user's DAGUITO session ended, and only a login fixes it. `null` is
+ * the odd case where a freshly minted token was still refused, which is the
+ * API's problem and not the session's.
+ */
+export type SessionExpiredDetail = { reason: RenewalFailure | null }
 
 /** An API error carrying the HTTP status, so callers can tell 403 from 500. */
 export class ApiError extends Error {
@@ -72,7 +82,8 @@ async function send(
     // moment. Announcing it lets the shell offer the reload that fixes it,
     // instead of every page showing its own red line.
     if (res.status === 401 && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED))
+      const detail: SessionExpiredDetail = { reason: renewalFailure() }
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED, { detail }))
     }
     // The API answers { error } on every failure; fall back to the status when
     // the body is not JSON (a proxy timing out, for instance).
