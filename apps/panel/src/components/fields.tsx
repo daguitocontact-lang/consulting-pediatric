@@ -18,6 +18,7 @@ import { Text, XStack, YStack, useTheme, useThemeName } from 'tamagui'
 import { Check, ChevronDown, Eye, Search, X } from '@tamagui/lucide-icons'
 import { useIsMobile } from '../ui/hooks/useIsMobile'
 import { ensureKeyframes } from '../ui/lib/keyframes'
+import { DatePicker } from '../ui/components/DatePicker'
 import { Badge, Button, Label, type BadgeProps } from './ui'
 
 /** `sm` and `md` are InputFrame's own sizes, to the pixel: these sit in a row
@@ -584,7 +585,6 @@ export function DateField({
   ariaLabel,
   value,
   onChange,
-  size = 'md',
   width,
   flex,
   min,
@@ -601,18 +601,19 @@ export function DateField({
   min?: string
   max?: string
 }) {
-  const style = useFieldStyle()
+  // The shared Daguito DatePicker (vendored into ui/components): themed month
+  // grid + string `YYYY-MM-DD` contract, replacing the native <input type="date">.
   return (
     <Field label={label} width={width} flex={flex}>
-      <input
-        type="date"
-        className={`pediatric-field pediatric-field--${size} pediatric-field--date`}
-        style={style}
-        aria-label={ariaLabel ?? label}
+      <DatePicker
+        mode="date"
         value={value}
+        onChange={onChange}
         min={min}
         max={max}
-        onChange={(event) => onChange(event.target.value)}
+        ariaLabel={ariaLabel ?? label}
+        placeholder="dd/mm/aaaa"
+        fullWidth
       />
     </Field>
   )
