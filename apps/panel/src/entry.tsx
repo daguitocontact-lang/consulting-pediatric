@@ -12,15 +12,17 @@
 // API calls twice inside a host that is already a dev build. The host decides
 // dev vs prod, not the remote.
 import { createRoot, type Root } from 'react-dom/client'
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
 import { TamaguiProvider, Text, Theme, XStack, YStack } from 'tamagui'
 import { tamaguiConfig } from './theme/config'
 import { ensureKeyframes } from './ui/lib/keyframes'
 import { ToastProvider } from './components/Toast'
+import { Shell } from './components/Shell'
 import {
   MENU_PAGE_ID,
   buildManifest,
   isLegacyPageId,
+  isNavSectionId,
   type NavSectionId,
   type PanelPage,
 } from './manifest'
@@ -150,36 +152,45 @@ function sectionFor(pageId: string): SectionId | null {
 }
 
 /**
- * One section of the panel, mounted by the host.
+ * The custom's single menu row, with its own sections inside.
  *
- * The manifest publishes a row per section, so WHICH section is open is the
- * host's business: it routes `/custom-panel/<id>`, mounts us with that id, and
- * highlights the matching row. There is no switcher in here any more, and there
- * must not be one — the panel cannot tell the host that the section changed
- * (lib/route.ts writes the URL deliberately without the host's route event, to
- * avoid a re-mount), so a second switcher could only leave the sidebar
- * highlighting the section the doctor had just left.
+ * The section is state here and the tab switch never goes THROUGH Daguito: the
+ * host mounts the panel once per route and re-mounts on nothing else, so a
+ * switch routed through the host would cost a full unmount/mount of the React
+ * tree. The incoming `pageId` seeds it, which keeps a deep link landing where it
+ * asked. The URL is kept in step behind the host's back (lib/route.ts) rather
+ * than by asking the host to navigate — which is why the in-panel Shell can own
+ * the switch without the sidebar drifting.
  *
- * The URL is still named on landing: the bare `/custom-panel` route arrives
- * with no id, opens on the first section, and an address bar that does not say
- * which one is not a link anybody can pass on. Replaces rather than pushes —
- * nobody navigated there.
+ * The bare `/custom-panel` route arrives with no id, opens on the first section,
+ * and the address bar is named on landing (replace, not push — nobody navigated
+ * there).
  */
 function Panel(props: MountProps) {
-  const section = sectionFor(props.pageId)
+  const i18n = translator(props.locale)
+  const [section, setSection] = useState(() => sectionFor(props.pageId))
 
   useEffect(() => {
     if (section) writeSection(section, { replace: true })
-    // Once, for the landing section: every later change is a host navigation,
-    // which re-mounts this component with the new id.
+    // Once, for the landing section. Every later change is a click, and
+    // selectSection writes its own entry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const selectSection = useCallback((id: NavSectionId) => {
+    setSection(id)
+    writeSection(id)
   }, [])
 
   const Page = section ? PAGES[section] : null
   return (
-    <YStack flex={1} minHeight="100%">
+    <Shell
+      active={section && isNavSectionId(section) ? section : null}
+      i18n={i18n}
+      onSelect={selectSection}
+    >
       {Page ? <Page {...props} /> : <UnknownPage pageId={props.pageId} />}
-    </YStack>
+    </Shell>
   )
 }
 

@@ -1,23 +1,13 @@
 // What Daguito's menu gets from this custom.
 //
-// ONE ROW PER SECTION. The host draws one menu item per entry here, and this
-// panel publishes both of its sections — Consultas and Plantillas — so the
-// doctor switches them where every other row in that menu lives, instead of in
-// a second navigation of our own drawn inside the page.
-//
-// It used to be a single row with an in-panel tab bar, and the argument was
-// that our sections would be scattered among the host's own (Inicio,
-// Conversaciones, Tickets…). That stopped being true for this client the day
-// the org hid those rows: the menu holds this panel and little else, so there
-// is nothing left to be scattered among. Two navigations for the same two
-// screens is the worse trade — and the wrong one, because the panel cannot tell
-// the host which row is open (lib/route.ts writes the URL deliberately WITHOUT
-// the host's route event), so an in-panel switch left the sidebar highlighting
-// the section you had just left.
-//
-// The cost is honest: switching sections now goes through the host, which
-// re-mounts the panel's React tree instead of swapping a child. For two
-// sections that is a re-render nobody can see.
+// ONE row, on purpose — like every other custom (Somos Cocuy). The host draws
+// one menu item per entry here and has no nesting, so a row per section meant
+// our sections (Consultas, Plantillas) sat as separate icons among the host's
+// own menu. The custom takes a SINGLE item — "Pediatric" — and switches its own
+// sections in the bar above the page (components/Shell.tsx): one entry point,
+// the sections as tabs at the top. The in-panel switch writes the URL itself
+// (lib/route.ts, deliberately WITHOUT the host's route event) so the host never
+// re-mounts the React tree on a tab change.
 //
 // Ids and module names are English like the rest of the code; the LABEL is UI
 // copy, so it comes from the dictionary and follows the viewer's language.
@@ -117,20 +107,16 @@ export const isNavSectionId = (id: string): id is NavSectionId => NAV_IDS.includ
  * and the row ships either way.
  */
 export function buildManifest(locale?: string): PanelPage[] {
-  const rows = (label: (section: SectionSpec) => string): PanelPage[] =>
-    SECTIONS.map((section) => ({
-      id: section.id,
-      label: label(section),
-      icon: section.menuIcon,
-      module: `./${section.id}`,
-    }))
+  const row = (label: string): PanelPage[] => [
+    // `CalendarCheck` is a Daguito custom-panel icon (its closed registry); the
+    // per-section icons (Stethoscope/FileText) are resolved by our own Shell.
+    { id: MENU_PAGE_ID, label, icon: 'CalendarCheck', module: `./${MENU_PAGE_ID}` },
+  ]
   try {
-    const t = translator(locale).t
-    return rows((section) => t(section.labelKey))
+    return row(translator(locale).t('nav.group'))
   } catch {
-    // Untranslated, but present: menu rows that open the panel beat no rows.
-    // The ids are what make them work, and those never came from a dictionary.
-    return rows((section) => section.id)
+    // Untranslated, but present: a menu row that opens the panel beats no row.
+    return row('Pediatric')
   }
 }
 
